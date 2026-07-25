@@ -13,6 +13,8 @@ const emptyForm = {
   phone: '',
   email: '',
   package_id: '',
+  amount_charged: '',
+  payment_method: 'Cash',
 }
 
 export default function Students() {
@@ -33,7 +35,7 @@ export default function Students() {
   async function loadStudents() {
     const { data } = await supabase
       .from('students')
-      .select('*, packages(package_name, total_classes, is_unlimited)')
+      .select('*, packages(package_name, total_classes, is_unlimited, price)')
       .order('created_at', { ascending: false })
     setStudents(data || [])
   }
@@ -43,6 +45,16 @@ export default function Students() {
     setPackages(data || [])
   }
 
+  function handlePackageChange(packageId) {
+    const pkg = packages.find((p) => p.id === packageId)
+    setForm({
+      ...form,
+      package_id: packageId,
+      // pre-fill the list price, but staff can still edit it if there's a discount/offer
+      amount_charged: pkg ? pkg.price : '',
+    })
+  }
+
   async function handleSave(e) {
     e.preventDefault()
     setError('')
@@ -50,7 +62,7 @@ export default function Students() {
 
     const pkg = packages.find((p) => p.id === form.package_id)
 
-    const { data, error } = await supabase
+    const { data: newStudent, error: studentError } = await supabase
       .from('students')
       .insert({
         student_code: makeStudentCode(),
@@ -63,17 +75,32 @@ export default function Students() {
       .select()
       .single()
 
-    setSaving(false)
-
-    if (error) {
-      setError(error.message)
+    if (studentError) {
+      setSaving(false)
+      setError(studentError.message)
       return
     }
 
+    // log what was actually charged (may differ from the package's list price)
+    if (form.amount_charged !== '') {
+      const { error: paymentError } = await supabase.from('payments').insert({
+        student_id: newStudent.id,
+        package_id: form.package_id || null,
+        amount: Number(form.amount_charged),
+        payment_method: form.payment_method,
+      })
+      if (paymentError) {
+        setSaving(false)
+        setError(`Member saved, but payment log failed: ${paymentError.message}`)
+        return
+      }
+    }
+
+    setSaving(false)
     setForm(emptyForm)
     setShowForm(false)
     await loadStudents()
-    setQrStudent(data) // immediately show the new member's QR code
+    setQrStudent(newStudent) // immediately show the new member's QR code
   }
 
   const filtered = students.filter((s) =>
@@ -92,7 +119,7 @@ export default function Students() {
             onClick={() => setShowForm(true)}
             className="bg-chalk hover:bg-chalk-bright text-court-950 font-semibold px-4 py-2 rounded-md text-sm transition-colors"
           >
-            + Add member
+            + Enroll member
           </button>
         </header>
 
@@ -139,7 +166,7 @@ export default function Students() {
               {filtered.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-5 py-8 text-center text-line-dim text-sm">
-                    No members yet. Add your first member to get started.
+                    No members yet. Enroll your first member to get started.
                   </td>
                 </tr>
               )}
@@ -148,14 +175,14 @@ export default function Students() {
         </div>
       </div>
 
-      {/* Add member modal */}
+      {/* Enroll member modal */}
       {showForm && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-20">
           <form
             onSubmit={handleSave}
-            className="bg-court-900 border border-court-700 rounded-xl p-6 w-full max-w-sm space-y-4"
+            className="bg-court-900 border border-court-700 rounded-xl p-6 w-full max-w-sm space-y-4 max-h-[90vh] overflow-y-auto"
           >
-            <h2 className="font-display text-xl">ADD MEMBER</h2>
+            <h2 className="font-display text-xl">ENROLL MEMBER</h2>
 
             <div>
               <label className="block text-xs text-line-dim mb-1.5">Full name</label>
@@ -188,15 +215,45 @@ export default function Students() {
               <label className="block text-xs text-line-dim mb-1.5">Package</label>
               <select
                 value={form.package_id}
-                onChange={(e) => setForm({ ...form, package_id: e.target.value })}
+                onChange={(e) => handlePackageChange(e.target.value)}
                 className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
               >
                 <option value="">No package</option>
                 {packages.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.package_name} (AED {p.price})
+                    {p.package_name} (AED {p.price} list price)
                   </option>
                 ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-line-dim mb-1.5">
+                Amount actually charged (AED)
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={form.amount_charged}
+                onChange={(e) => setForm({ ...form, amount_charged: e.target.value })}
+                placeholder="e.g. discounted or offer price"
+                className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
+              />
+              <p className="text-[11px] text-line-dim mt-1">
+                Pre-filled from the package price — edit if there's a discount or offer.
+              </p>
+            </div>
+            <div>
+              <label className="block text-xs text-line-dim mb-1.5">Payment method</label>
+              <select
+                value={form.payment_method}
+                onChange={(e) => setForm({ ...form, payment_method: e.target.value })}
+                className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
+              >
+                <option>Cash</option>
+                <option>Card</option>
+                <option>Bank Transfer</option>
+                <option>Other</option>
               </select>
             </div>
 
@@ -205,7 +262,7 @@ export default function Students() {
             <div className="flex gap-2 pt-2">
               <button
                 type="button"
-                onClick={() => { setShowForm(false); setError('') }}
+                onClick={() => { setShowForm(false); setError(''); setForm(emptyForm) }}
                 className="flex-1 border border-court-600 rounded-md py-2 text-sm text-line-dim hover:bg-court-800"
               >
                 Cancel

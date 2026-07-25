@@ -4,6 +4,7 @@ import Dashboard from './pages/Dashboard'
 import Students from './pages/Students'
 import CheckIn from './pages/CheckIn'
 import Reports from './pages/Reports'
+import Rentals from './pages/Rentals'
 import ProtectedRoute from './components/ProtectedRoute'
 
 export default function App() {
@@ -13,6 +14,7 @@ export default function App() {
       <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
       <Route path="/students" element={<ProtectedRoute><Students /></ProtectedRoute>} />
       <Route path="/checkin" element={<ProtectedRoute><CheckIn /></ProtectedRoute>} />
+      <Route path="/rentals" element={<ProtectedRoute><Rentals /></ProtectedRoute>} />
       <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
     </Routes>
   )

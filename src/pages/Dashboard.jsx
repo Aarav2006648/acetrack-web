@@ -8,6 +8,7 @@ export default function Dashboard() {
     todayCheckins: null,
     activePackages: null,
     monthRevenue: null,
+    monthPending: null,
   })
   const [recent, setRecent] = useState([])
 
@@ -21,30 +22,69 @@ export default function Dashboard() {
     monthStart.setDate(1)
     const monthStartStr = monthStart.toISOString().slice(0, 10)
 
-    const [{ count: totalMembers }, { count: todayCheckins }, { count: activePackages }, { data: payments }, { data: recentCheckins }] =
-      await Promise.all([
-        supabase.from('students').select('*', { count: 'exact', head: true }).eq('status', 'Active'),
-        supabase.from('attendance').select('*', { count: 'exact', head: true }).eq('attendance_date', today),
-        supabase.from('students').select('*', { count: 'exact', head: true }).gt('remaining_classes', 0),
-        supabase.from('payments').select('amount').gte('payment_date', monthStartStr),
-        supabase
-          .from('attendance')
-          .select('id, activity, check_in_time, students(full_name)')
-          .order('check_in_time', { ascending: false })
-          .limit(8),
-      ])
+    const [
+      { count: totalMembers },
+      { count: todayCheckins },
+      { count: activePackages },
+      { data: enrollmentPayments },
+      { data: monthRentals },
+      { data: monthGuestAttendance },
+      { data: recentCheckins },
+    ] = await Promise.all([
+      supabase.from('students').select('*', { count: 'exact', head: true }).eq('status', 'Active'),
+      supabase.from('attendance').select('*', { count: 'exact', head: true }).eq('attendance_date', today),
+      supabase.from('students').select('*', { count: 'exact', head: true }).gt('remaining_classes', 0),
+      supabase.from('payments').select('amount').gte('payment_date', monthStartStr),
+      supabase.from('rentals').select('price, payment_status').gte('booking_date', monthStartStr),
+      supabase
+        .from('attendance')
+        .select('amount, payment_status')
+        .is('student_id', null)
+        .gte('attendance_date', monthStartStr),
+      supabase
+        .from('attendance')
+        .select('id, activity, check_in_time, guest_name, students(full_name)')
+        .order('check_in_time', { ascending: false })
+        .limit(8),
+    ])
 
-    const monthRevenue = (payments || []).reduce((sum, p) => sum + Number(p.amount || 0), 0)
+    // Revenue = enrollment/package payments this month + billiards rentals collected this month + badminton walk-in guests collected this month
+    const enrollmentTotal = (enrollmentPayments || []).reduce((sum, p) => sum + Number(p.amount || 0), 0)
+    const rentalsPaid = (monthRentals || [])
+      .filter((r) => r.payment_status === 'Paid')
+      .reduce((sum, r) => sum + Number(r.price || 0), 0)
+    const rentalsPending = (monthRentals || [])
+      .filter((r) => r.payment_status === 'Pending')
+      .reduce((sum, r) => sum + Number(r.price || 0), 0)
+    const guestPaid = (monthGuestAttendance || [])
+      .filter((a) => a.payment_status === 'Paid')
+      .reduce((sum, a) => sum + Number(a.amount || 0), 0)
+    const guestPending = (monthGuestAttendance || [])
+      .filter((a) => a.payment_status === 'Pending')
+      .reduce((sum, a) => sum + Number(a.amount || 0), 0)
 
-    setStats({ totalMembers, todayCheckins, activePackages, monthRevenue })
+    setStats({
+      totalMembers,
+      todayCheckins,
+      activePackages,
+      monthRevenue: enrollmentTotal + rentalsPaid + guestPaid,
+      monthPending: rentalsPending + guestPending,
+    })
     setRecent(recentCheckins || [])
   }
 
   const cards = [
     { label: 'Active Members', value: stats.totalMembers },
-    { label: "Check-ins Today", value: stats.todayCheckins },
+    { label: 'Check-ins Today', value: stats.todayCheckins },
     { label: 'Members With Classes Left', value: stats.activePackages },
-    { label: 'Revenue This Month', value: stats.monthRevenue != null ? `AED ${stats.monthRevenue.toFixed(0)}` : null },
+    {
+      label: 'Revenue This Month',
+      value: stats.monthRevenue != null ? `AED ${stats.monthRevenue.toFixed(0)}` : null,
+      sub:
+        stats.monthPending != null && stats.monthPending > 0
+          ? `+ AED ${stats.monthPending.toFixed(0)} pending`
+          : null,
+    },
   ]
 
   return (
@@ -62,6 +102,7 @@ export default function Dashboard() {
               <p className="font-mono text-3xl mt-2 text-chalk">
                 {c.value === null ? '—' : c.value}
               </p>
+              {c.sub && <p className="text-xs text-line-dim mt-1">{c.sub}</p>}
             </div>
           ))}
         </div>
@@ -77,7 +118,7 @@ export default function Dashboard() {
             {recent.map((r) => (
               <div key={r.id} className="px-5 py-3 flex items-center justify-between text-sm">
                 <div>
-                  <span className="font-medium">{r.students?.full_name || 'Unknown member'}</span>
+                  <span className="font-medium">{r.students?.full_name || r.guest_name || 'Unknown'}</span>
                   <span className="text-line-dim ml-2">{r.activity}</span>
                 </div>
                 <span className="font-mono text-line-dim text-xs">
