@@ -1,0 +1,50 @@
+@import url('https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap');
+@import "tailwindcss";
+
+@theme {
+  /* Court-at-night palette: dark felt green base, chalk amber accent */
+  --color-court-950: #0c1712;
+  --color-court-900: #111f19;
+  --color-court-800: #182a21;
+  --color-court-700: #22392e;
+  --color-court-600: #2f4d3d;
+  --color-line: #eef1ec;
+  --color-line-dim: #a9b6ab;
+  --color-chalk: #e8a33d;
+  --color-chalk-bright: #f6b94f;
+  --color-net: #4f8f6d;
+  --color-danger: #d1594a;
+
+  --font-display: 'Oswald', 'Arial Narrow', sans-serif;
+  --font-body: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+body {
+  background-color: var(--color-court-950);
+  color: var(--color-line);
+  font-family: var(--font-body);
+  background-image:
+    linear-gradient(var(--color-court-900) 1px, transparent 1px),
+    linear-gradient(90deg, var(--color-court-900) 1px, transparent 1px);
+  background-size: 48px 48px;
+  background-attachment: fixed;
+}
+
+.font-display {
+  font-family: var(--font-display);
+  letter-spacing: 0.02em;
+}
+
+.font-mono {
+  font-family: var(--font-mono);
+}
+
+::selection {
+  background-color: var(--color-chalk);
+  color: var(--color-court-950);
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: var(--color-court-900); }
+::-webkit-scrollbar-thumb { background: var(--color-court-600); border-radius: 4px; }
