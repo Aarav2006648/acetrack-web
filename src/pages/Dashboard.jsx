@@ -6,7 +6,7 @@ export default function Dashboard() {
   const [stats, setStats] = useState({
     totalMembers: null,
     todayCheckins: null,
-    activePackages: null,
+    renewalsDue: null,
     monthRevenue: null,
     monthPending: null,
   })
@@ -25,7 +25,7 @@ export default function Dashboard() {
     const [
       { count: totalMembers },
       { count: todayCheckins },
-      { count: activePackages },
+      { data: renewalCandidates },
       { data: enrollmentPayments },
       { data: monthRentals },
       { data: monthGuestAttendance },
@@ -33,7 +33,7 @@ export default function Dashboard() {
     ] = await Promise.all([
       supabase.from('students').select('*', { count: 'exact', head: true }).eq('status', 'Active'),
       supabase.from('attendance').select('*', { count: 'exact', head: true }).eq('attendance_date', today),
-      supabase.from('students').select('*', { count: 'exact', head: true }).gt('remaining_classes', 0),
+      supabase.from('students').select('id, remaining_classes, packages(is_unlimited)').eq('status', 'Active').lte('remaining_classes', 1),
       supabase.from('payments').select('amount').gte('payment_date', monthStartStr),
       supabase.from('rentals').select('price, payment_status').gte('booking_date', monthStartStr),
       supabase
@@ -48,7 +48,9 @@ export default function Dashboard() {
         .limit(8),
     ])
 
-    // Revenue = enrollment/package payments this month + billiards rentals collected this month + badminton walk-in guests collected this month
+    // exclude unlimited-package members — they never run out, so they're never "due"
+    const renewalsDue = (renewalCandidates || []).filter((s) => !s.packages?.is_unlimited).length
+
     const enrollmentTotal = (enrollmentPayments || []).reduce((sum, p) => sum + Number(p.amount || 0), 0)
     const rentalsPaid = (monthRentals || [])
       .filter((r) => r.payment_status === 'Paid')
@@ -66,7 +68,7 @@ export default function Dashboard() {
     setStats({
       totalMembers,
       todayCheckins,
-      activePackages,
+      renewalsDue,
       monthRevenue: enrollmentTotal + rentalsPaid + guestPaid,
       monthPending: rentalsPending + guestPending,
     })
@@ -76,14 +78,11 @@ export default function Dashboard() {
   const cards = [
     { label: 'Active Members', value: stats.totalMembers },
     { label: 'Check-ins Today', value: stats.todayCheckins },
-    { label: 'Members With Classes Left', value: stats.activePackages },
+    { label: 'Renewals Due', value: stats.renewalsDue },
     {
       label: 'Revenue This Month',
       value: stats.monthRevenue != null ? `AED ${stats.monthRevenue.toFixed(0)}` : null,
-      sub:
-        stats.monthPending != null && stats.monthPending > 0
-          ? `+ AED ${stats.monthPending.toFixed(0)} pending`
-          : null,
+      sub: stats.monthPending != null && stats.monthPending > 0 ? `+ AED ${stats.monthPending.toFixed(0)} pending` : null,
     },
   ]
 
@@ -99,9 +98,7 @@ export default function Dashboard() {
           {cards.map((c) => (
             <div key={c.label} className="bg-court-900 border border-court-700 rounded-xl p-5">
               <p className="text-xs text-line-dim uppercase tracking-wide">{c.label}</p>
-              <p className="font-mono text-3xl mt-2 text-chalk">
-                {c.value === null ? '—' : c.value}
-              </p>
+              <p className="font-mono text-3xl mt-2 text-chalk">{c.value === null ? '—' : c.value}</p>
               {c.sub && <p className="text-xs text-line-dim mt-1">{c.sub}</p>}
             </div>
           ))}

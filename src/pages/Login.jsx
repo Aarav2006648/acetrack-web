@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
 export default function Login() {
@@ -34,10 +34,7 @@ export default function Login() {
           <p className="text-line-dim text-sm font-mono">Al Hayatt Badminton &amp; Billiards Club</p>
         </div>
 
-        <form
-          onSubmit={handleSubmit}
-          className="bg-court-900 border border-court-700 rounded-xl p-6 space-y-4"
-        >
+        <form onSubmit={handleSubmit} className="bg-court-900 border border-court-700 rounded-xl p-6 space-y-4">
           <div>
             <label className="block text-xs font-medium text-line-dim mb-1.5">Staff email</label>
             <input
@@ -62,9 +59,7 @@ export default function Login() {
           </div>
 
           {error && (
-            <p className="text-sm text-danger bg-danger/10 border border-danger/30 rounded-md px-3 py-2">
-              {error}
-            </p>
+            <p className="text-sm text-danger bg-danger/10 border border-danger/30 rounded-md px-3 py-2">{error}</p>
           )}
 
           <button
@@ -77,7 +72,10 @@ export default function Login() {
         </form>
 
         <p className="text-center text-xs text-line-dim mt-4">
-          Accounts are created in Supabase Auth by the club admin.
+          Looking for your child's attendance?{' '}
+          <Link to="/parent" className="underline hover:text-line">
+            Parent portal
+          </Link>
         </p>
       </div>
     </div>
