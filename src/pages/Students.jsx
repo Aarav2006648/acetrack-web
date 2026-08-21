@@ -74,6 +74,7 @@ export default function Students() {
 
   function handlePackageChange(packageId) {
     const pkg = packages.find((p) => p.id === packageId)
+
     setForm({
       ...form,
       package_id: packageId,
@@ -125,12 +126,15 @@ export default function Students() {
     setSaving(false)
     setForm(emptyForm)
     setShowForm(false)
+
     await loadStudents()
+
     setQrStudent(newStudent)
   }
 
   function openEdit(student) {
     setEditStudent(student)
+
     setEditForm({
       full_name: student.full_name,
       phone: student.phone,
@@ -139,7 +143,9 @@ export default function Students() {
       remaining_classes: student.remaining_classes ?? 0,
       status: student.status,
     })
+
     setEditError('')
+
     setRenewPackageId(student.package_id || '')
     setRenewAmount('')
     setRenewMethod('Cash')
@@ -149,7 +155,9 @@ export default function Students() {
 
   function handleRenewPackageChange(packageId) {
     setRenewPackageId(packageId)
+
     const pkg = packages.find((p) => p.id === packageId)
+
     setRenewAmount(pkg ? String(pkg.price) : '')
   }
 
@@ -184,13 +192,19 @@ export default function Students() {
       return
     }
 
-    await supabase.from('package_history').insert({
-      student_id: editStudent.id,
-      package_id: pkg.id,
-      start_date: new Date().toISOString().slice(0, 10),
-      classes_used: 0,
-      remaining_classes: pkg.total_classes,
-    })
+    const { error: historyError } = await supabase
+      .from('package_history')
+      .insert({
+        student_id: editStudent.id,
+        package_id: pkg.id,
+        start_date: new Date().toISOString().slice(0, 10),
+        classes_used: 0,
+        remaining_classes: pkg.total_classes,
+      })
+
+    if (historyError) {
+      console.error('Package history error:', historyError)
+    }
 
     const { error: updateError } = await supabase
       .from('students')
@@ -210,6 +224,7 @@ export default function Students() {
     }
 
     setRenewDone(true)
+
     await loadStudents()
   }
 
@@ -239,6 +254,7 @@ export default function Students() {
 
     setEditStudent(null)
     setEditForm(null)
+
     await loadStudents()
   }
 
@@ -247,7 +263,7 @@ export default function Students() {
 
     const confirmed = window.confirm(
       `Are you sure you want to permanently remove ${editStudent.full_name}?\n\n` +
-      'This will delete their member record and any related payment, attendance, and package-history records. This cannot be undone.'
+        'This will delete their member record and any related payment, attendance, and package-history records. This cannot be undone.'
     )
 
     if (!confirmed) return
@@ -269,6 +285,7 @@ export default function Students() {
 
     setEditStudent(null)
     setEditForm(null)
+
     await loadStudents()
   }
 
@@ -288,7 +305,10 @@ export default function Students() {
         <header className="flex items-center justify-between mb-8">
           <div>
             <h1 className="font-display text-3xl">MEMBERS</h1>
-            <p className="text-line-dim text-sm mt-1">{students.length} total</p>
+
+            <p className="text-line-dim text-sm mt-1">
+              {students.length} total
+            </p>
           </div>
 
           <button
@@ -327,10 +347,15 @@ export default function Students() {
                 >
                   <td className="px-5 py-3">
                     <div className="font-medium">{s.full_name}</div>
-                    <div className="text-xs text-line-dim font-mono">{s.student_code}</div>
+
+                    <div className="text-xs text-line-dim font-mono">
+                      {s.student_code}
+                    </div>
                   </td>
 
-                  <td className="px-5 py-3 text-line-dim">{s.phone}</td>
+                  <td className="px-5 py-3 text-line-dim">
+                    {s.phone}
+                  </td>
 
                   <td className="px-5 py-3 text-line-dim">
                     {s.packages?.package_name || '—'}
@@ -338,7 +363,9 @@ export default function Students() {
 
                   <td className="px-5 py-3 font-mono">
                     <span className={isRenewalDue(s) ? 'text-danger' : ''}>
-                      {s.packages?.is_unlimited ? 'Unlimited' : s.remaining_classes}
+                      {s.packages?.is_unlimited
+                        ? 'Unlimited'
+                        : s.remaining_classes}
                     </span>
 
                     {isRenewalDue(s) && (
@@ -364,7 +391,10 @@ export default function Students() {
 
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-5 py-8 text-center text-line-dim text-sm">
+                  <td
+                    colSpan={5}
+                    className="px-5 py-8 text-center text-line-dim text-sm"
+                  >
                     No members yet. Enroll your first member to get started.
                   </td>
                 </tr>
@@ -378,6 +408,8 @@ export default function Students() {
         </p>
       </div>
 
+      {/* ENROLL MEMBER */}
+
       {showForm && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-20">
           <form
@@ -387,43 +419,71 @@ export default function Students() {
             <h2 className="font-display text-xl">ENROLL MEMBER</h2>
 
             <div>
-              <label className="block text-xs text-line-dim mb-1.5">Full name</label>
+              <label className="block text-xs text-line-dim mb-1.5">
+                Full name
+              </label>
+
               <input
                 required
                 value={form.full_name}
-                onChange={(e) => setForm({ ...form, full_name: e.target.value })}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    full_name: e.target.value,
+                  })
+                }
                 className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
               />
             </div>
 
             <div>
-              <label className="block text-xs text-line-dim mb-1.5">Phone</label>
+              <label className="block text-xs text-line-dim mb-1.5">
+                Phone
+              </label>
+
               <input
                 required
                 value={form.phone}
-                onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    phone: e.target.value,
+                  })
+                }
                 className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
               />
             </div>
 
             <div>
-              <label className="block text-xs text-line-dim mb-1.5">Email (optional)</label>
+              <label className="block text-xs text-line-dim mb-1.5">
+                Email (optional)
+              </label>
+
               <input
                 type="email"
                 value={form.email}
-                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    email: e.target.value,
+                  })
+                }
                 className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
               />
             </div>
 
             <div>
-              <label className="block text-xs text-line-dim mb-1.5">Package</label>
+              <label className="block text-xs text-line-dim mb-1.5">
+                Package
+              </label>
+
               <select
                 value={form.package_id}
                 onChange={(e) => handlePackageChange(e.target.value)}
                 className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
               >
                 <option value="">No package</option>
+
                 {packages.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.package_name} (AED {p.price} list price)
@@ -436,25 +496,41 @@ export default function Students() {
               <label className="block text-xs text-line-dim mb-1.5">
                 Amount actually charged (AED)
               </label>
+
               <input
                 type="number"
                 step="0.01"
                 min="0"
                 value={form.amount_charged}
-                onChange={(e) => setForm({ ...form, amount_charged: e.target.value })}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    amount_charged: e.target.value,
+                  })
+                }
                 placeholder="e.g. discounted or offer price"
                 className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
               />
+
               <p className="text-[11px] text-line-dim mt-1">
-                Pre-filled from the package price — edit if there's a discount or offer.
+                Pre-filled from the package price — edit if there's a discount
+                or offer.
               </p>
             </div>
 
             <div>
-              <label className="block text-xs text-line-dim mb-1.5">Payment method</label>
+              <label className="block text-xs text-line-dim mb-1.5">
+                Payment method
+              </label>
+
               <select
                 value={form.payment_method}
-                onChange={(e) => setForm({ ...form, payment_method: e.target.value })}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    payment_method: e.target.value,
+                  })
+                }
                 className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
               >
                 <option>Cash</option>
@@ -464,7 +540,11 @@ export default function Students() {
               </select>
             </div>
 
-            {error && <p className="text-sm text-danger">{error}</p>}
+            {error && (
+              <p className="text-sm text-danger">
+                {error}
+              </p>
+            )}
 
             <div className="flex gap-2 pt-2">
               <button
@@ -491,51 +571,94 @@ export default function Students() {
         </div>
       )}
 
+      {/* EDIT MEMBER */}
+
       {editStudent && editForm && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-20">
           <div className="bg-court-900 border border-court-700 rounded-xl p-6 w-full max-w-sm space-y-4 max-h-[90vh] overflow-y-auto">
-            <h2 className="font-display text-xl">EDIT MEMBER</h2>
-            <p className="text-xs text-line-dim font-mono -mt-2">{editStudent.student_code}</p>
+            <h2 className="font-display text-xl">
+              EDIT MEMBER
+            </h2>
 
-            <form onSubmit={handleEditSave} className="space-y-4">
+            <p className="text-xs text-line-dim font-mono -mt-2">
+              {editStudent.student_code}
+            </p>
+
+            <form
+              onSubmit={handleEditSave}
+              className="space-y-4"
+            >
               <div>
-                <label className="block text-xs text-line-dim mb-1.5">Full name</label>
+                <label className="block text-xs text-line-dim mb-1.5">
+                  Full name
+                </label>
+
                 <input
                   required
                   value={editForm.full_name}
-                  onChange={(e) => setEditForm({ ...editForm, full_name: e.target.value })}
+                  onChange={(e) =>
+                    setEditForm({
+                      ...editForm,
+                      full_name: e.target.value,
+                    })
+                  }
                   className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
                 />
               </div>
 
               <div>
-                <label className="block text-xs text-line-dim mb-1.5">Phone</label>
+                <label className="block text-xs text-line-dim mb-1.5">
+                  Phone
+                </label>
+
                 <input
                   required
                   value={editForm.phone}
-                  onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+                  onChange={(e) =>
+                    setEditForm({
+                      ...editForm,
+                      phone: e.target.value,
+                    })
+                  }
                   className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
                 />
               </div>
 
               <div>
-                <label className="block text-xs text-line-dim mb-1.5">Email</label>
+                <label className="block text-xs text-line-dim mb-1.5">
+                  Email
+                </label>
+
                 <input
                   type="email"
                   value={editForm.email}
-                  onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+                  onChange={(e) =>
+                    setEditForm({
+                      ...editForm,
+                      email: e.target.value,
+                    })
+                  }
                   className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
                 />
               </div>
 
               <div>
-                <label className="block text-xs text-line-dim mb-1.5">Package</label>
+                <label className="block text-xs text-line-dim mb-1.5">
+                  Package
+                </label>
+
                 <select
                   value={editForm.package_id}
-                  onChange={(e) => setEditForm({ ...editForm, package_id: e.target.value })}
+                  onChange={(e) =>
+                    setEditForm({
+                      ...editForm,
+                      package_id: e.target.value,
+                    })
+                  }
                   className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
                 >
                   <option value="">No package</option>
+
                   {packages.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.package_name}
@@ -545,24 +668,42 @@ export default function Students() {
               </div>
 
               <div>
-                <label className="block text-xs text-line-dim mb-1.5">Classes remaining</label>
+                <label className="block text-xs text-line-dim mb-1.5">
+                  Classes remaining
+                </label>
+
                 <input
                   type="number"
                   min="0"
                   value={editForm.remaining_classes}
-                  onChange={(e) => setEditForm({ ...editForm, remaining_classes: e.target.value })}
+                  onChange={(e) =>
+                    setEditForm({
+                      ...editForm,
+                      remaining_classes: e.target.value,
+                    })
+                  }
                   className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
                 />
+
                 <p className="text-[11px] text-line-dim mt-1">
-                  Adjust manually if a class was made up, refunded, or added as a bonus.
+                  Adjust manually if a class was made up, refunded, or added
+                  as a bonus.
                 </p>
               </div>
 
               <div>
-                <label className="block text-xs text-line-dim mb-1.5">Status</label>
+                <label className="block text-xs text-line-dim mb-1.5">
+                  Status
+                </label>
+
                 <select
                   value={editForm.status}
-                  onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}
+                  onChange={(e) =>
+                    setEditForm({
+                      ...editForm,
+                      status: e.target.value,
+                    })
+                  }
                   className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
                 >
                   <option>Active</option>
@@ -570,7 +711,11 @@ export default function Students() {
                 </select>
               </div>
 
-              {editError && <p className="text-sm text-danger">{editError}</p>}
+              {editError && (
+                <p className="text-sm text-danger">
+                  {editError}
+                </p>
+              )}
 
               <div className="flex gap-2 pt-2">
                 <button
@@ -596,6 +741,8 @@ export default function Students() {
               </div>
             </form>
 
+            {/* DELETE MEMBER */}
+
             <div className="border-t border-court-700 pt-4">
               <button
                 type="button"
@@ -603,18 +750,28 @@ export default function Students() {
                 disabled={editSaving || deleteSaving}
                 className="w-full border border-danger/40 text-danger hover:bg-danger/10 rounded-md py-2 text-sm font-medium disabled:opacity-60"
               >
-                {deleteSaving ? 'Removing…' : 'Remove member permanently'}
+                {deleteSaving
+                  ? 'Removing…'
+                  : 'Remove member permanently'}
               </button>
+
               <p className="text-[11px] text-line-dim mt-2">
-                Permanently removes this member and related payment, attendance, and package-history records.
+                Permanently removes this member and related payment,
+                attendance, and package-history records.
               </p>
             </div>
 
-            {/* Renew membership */}
+            {/* RENEW MEMBERSHIP */}
+
             <div className="border-t border-court-700 pt-4">
-              <h3 className="font-display text-base mb-1">RENEW MEMBERSHIP</h3>
+              <h3 className="font-display text-base mb-1">
+                RENEW MEMBERSHIP
+              </h3>
+
               <p className="text-xs text-line-dim mb-3">
-                Log a new payment and reset their classes — use this whenever a member's package runs out and they pay to continue, whether that's today or weeks from now.
+                Log a new payment and reset their classes — use this whenever
+                a member's package runs out and they pay to continue, whether
+                that's today or weeks from now.
               </p>
 
               {renewDone ? (
@@ -622,15 +779,26 @@ export default function Students() {
                   Renewed! Classes have been reset and the payment is logged.
                 </p>
               ) : (
-                <form onSubmit={handleRenew} className="space-y-3">
+                <form
+                  onSubmit={handleRenew}
+                  className="space-y-3"
+                >
                   <div>
-                    <label className="block text-xs text-line-dim mb-1.5">Package</label>
+                    <label className="block text-xs text-line-dim mb-1.5">
+                      Package
+                    </label>
+
                     <select
                       value={renewPackageId}
-                      onChange={(e) => handleRenewPackageChange(e.target.value)}
+                      onChange={(e) =>
+                        handleRenewPackageChange(e.target.value)
+                      }
                       className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
                     >
-                      <option value="">Select a package…</option>
+                      <option value="">
+                        Select a package…
+                      </option>
+
                       {packages.map((p) => (
                         <option key={p.id} value={p.id}>
                           {p.package_name} (AED {p.price} list price)
@@ -641,22 +809,32 @@ export default function Students() {
 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs text-line-dim mb-1.5">Amount charged</label>
+                      <label className="block text-xs text-line-dim mb-1.5">
+                        Amount charged
+                      </label>
+
                       <input
                         type="number"
                         step="0.01"
                         min="0"
                         value={renewAmount}
-                        onChange={(e) => setRenewAmount(e.target.value)}
+                        onChange={(e) =>
+                          setRenewAmount(e.target.value)
+                        }
                         className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-xs text-line-dim mb-1.5">Method</label>
+                      <label className="block text-xs text-line-dim mb-1.5">
+                        Method
+                      </label>
+
                       <select
                         value={renewMethod}
-                        onChange={(e) => setRenewMethod(e.target.value)}
+                        onChange={(e) =>
+                          setRenewMethod(e.target.value)
+                        }
                         className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
                       >
                         <option>Cash</option>
@@ -667,14 +845,20 @@ export default function Students() {
                     </div>
                   </div>
 
-                  {renewError && <p className="text-sm text-danger">{renewError}</p>}
+                  {renewError && (
+                    <p className="text-sm text-danger">
+                      {renewError}
+                    </p>
+                  )}
 
                   <button
                     type="submit"
                     disabled={renewSaving}
                     className="w-full bg-net hover:brightness-110 text-court-950 font-semibold rounded-md py-2 text-sm disabled:opacity-60"
                   >
-                    {renewSaving ? 'Renewing…' : 'Renew membership'}
+                    {renewSaving
+                      ? 'Renewing…'
+                      : 'Renew membership'}
                   </button>
                 </form>
               )}
@@ -683,16 +867,26 @@ export default function Students() {
         </div>
       )}
 
+      {/* QR MODAL */}
+
       {qrStudent && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-20">
           <div className="bg-court-900 border border-court-700 rounded-xl p-6 w-full max-w-xs text-center space-y-4">
-            <h2 className="font-display text-xl">{qrStudent.full_name}</h2>
+            <h2 className="font-display text-xl">
+              {qrStudent.full_name}
+            </h2>
 
             <div className="bg-line p-4 rounded-lg inline-block">
-              <QRCodeCanvas id="qr-canvas" value={qrStudent.student_code} size={200} />
+              <QRCodeCanvas
+                id="qr-canvas"
+                value={qrStudent.student_code}
+                size={200}
+              />
             </div>
 
-            <p className="font-mono text-xs text-line-dim">{qrStudent.student_code}</p>
+            <p className="font-mono text-xs text-line-dim">
+              {qrStudent.student_code}
+            </p>
 
             <div className="flex gap-2">
               <button
@@ -703,10 +897,17 @@ export default function Students() {
               </button>
 
               <button
-                onClick={() => downloadQR(qrStudent)}
+                onClick={() => copyQRToClipboard(qrStudent)}
                 className="flex-1 bg-chalk hover:bg-chalk-bright text-court-950 font-semibold rounded-md py-2 text-sm"
               >
-                Download
+                Copy QR
+              </button>
+
+              <button
+                onClick={() => shareQROnWhatsApp(qrStudent)}
+                className="flex-1 bg-[#25D366] hover:bg-[#20BD5A] text-white font-semibold rounded-md py-2 text-sm"
+              >
+                WhatsApp
               </button>
             </div>
           </div>
@@ -716,14 +917,115 @@ export default function Students() {
   )
 }
 
-function downloadQR(student) {
+/* =========================================================
+   COPY QR IMAGE TO CLIPBOARD
+   ========================================================= */
+
+async function copyQRToClipboard(student) {
   const canvas = document.getElementById('qr-canvas')
 
-  if (!canvas) return
+  if (!canvas) {
+    window.alert('Could not find the QR code.')
+    return false
+  }
 
-  const url = canvas.toDataURL('image/png')
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `${student.student_code}-${student.full_name}.png`
-  a.click()
+  if (!navigator.clipboard || typeof ClipboardItem === 'undefined') {
+    window.alert(
+      'Your browser does not support copying QR images directly to the clipboard. Please use the latest version of Chrome or Edge.'
+    )
+
+    return false
+  }
+
+  try {
+    const blob = await new Promise((resolve, reject) => {
+      canvas.toBlob(
+        (result) => {
+          if (result) {
+            resolve(result)
+          } else {
+            reject(new Error('Could not create the QR image.'))
+          }
+        },
+        'image/png'
+      )
+    })
+
+    const item = new ClipboardItem({
+      'image/png': blob,
+    })
+
+    await navigator.clipboard.write([item])
+
+    window.alert(
+      `QR code for ${student.full_name} copied to clipboard!`
+    )
+
+    return true
+  } catch (error) {
+    console.error('Copy QR failed:', error)
+
+    window.alert(
+      'Could not copy the QR code. Make sure you are using the HTTPS version of the website and try again.'
+    )
+
+    return false
+  }
+}
+
+/* =========================================================
+   WHATSAPP
+   ========================================================= */
+
+async function shareQROnWhatsApp(student) {
+  const phone = normalizeWhatsAppPhone(student.phone)
+
+  if (!phone) {
+    window.alert(
+      'This member does not have a valid phone number saved.'
+    )
+
+    return
+  }
+
+  // Copy the QR image first.
+  const copied = await copyQRToClipboard(student)
+
+  if (!copied) {
+    return
+  }
+
+  // Open the member's WhatsApp chat.
+  const whatsappUrl = `https://wa.me/${phone}`
+
+  window.open(
+    whatsappUrl,
+    '_blank',
+    'noopener,noreferrer'
+  )
+
+  window.setTimeout(() => {
+    window.alert(
+      'QR code copied to your clipboard. Open the WhatsApp chat and paste the QR image.'
+    )
+  }, 500)
+}
+
+/* =========================================================
+   WHATSAPP PHONE NUMBER NORMALIZATION
+   ========================================================= */
+
+function normalizeWhatsAppPhone(phone) {
+  if (!phone) return ''
+
+  // Keep digits only.
+  let digits = String(phone).replace(/\D/g, '')
+
+  // UAE convenience:
+  // 0501234567 -> 971501234567
+  if (digits.startsWith('05') && digits.length === 10) {
+    digits = `971${digits.slice(1)}`
+  }
+
+  return digits
 }
