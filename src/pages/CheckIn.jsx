@@ -6,6 +6,16 @@ import { supabase } from '../lib/supabaseClient'
 const SCANNER_ID = 'qr-reader'
 const ACTIVITY = 'Badminton'
 const todayStr = () => new Date().toISOString().slice(0, 10)
+const nowTimeStr = () => new Date().toTimeString().slice(0, 5)
+
+function formatDateNice(dateStr) {
+  return new Date(`${dateStr}T00:00:00`).toLocaleDateString('en-AE', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  })
+}
 
 export default function CheckIn() {
   const [mode, setMode] = useState('scan')
@@ -19,6 +29,15 @@ export default function CheckIn() {
   const [guestAmount, setGuestAmount] = useState('')
   const [guestPaymentStatus, setGuestPaymentStatus] = useState('Paid')
   const [guestSaving, setGuestSaving] = useState(false)
+
+  // ---- manual / backdated check-in state ----
+  const [manualQuery, setManualQuery] = useState('')
+  const [manualResults, setManualResults] = useState([])
+  const [manualSearching, setManualSearching] = useState(false)
+  const [manualSelected, setManualSelected] = useState(null)
+  const [manualDate, setManualDate] = useState(todayStr())
+  const [manualTime, setManualTime] = useState(nowTimeStr())
+  const [manualSaving, setManualSaving] = useState(false)
 
   useEffect(() => {
     if (mode !== 'scan') return
@@ -146,6 +165,112 @@ export default function CheckIn() {
     setGuestPaymentStatus('Paid')
   }
 
+  // ---- manual / backdated check-in handlers ----
+
+  async function handleManualSearch(e) {
+    e.preventDefault()
+    const term = manualQuery.trim()
+    if (!term) return
+
+    setManualSearching(true)
+    setManualSelected(null)
+
+    const escaped = term.replace(/[%,]/g, '')
+
+    const { data, error } = await supabase
+      .from('students')
+      .select('*, packages(package_name, is_unlimited)')
+      .or(`full_name.ilike.%${escaped}%,student_code.ilike.%${escaped}%,phone.ilike.%${escaped}%`)
+      .order('full_name')
+      .limit(8)
+
+    setManualSearching(false)
+
+    if (error) {
+      setStatus({ type: 'error', message: error.message })
+      return
+    }
+
+    setManualResults(data || [])
+  }
+
+  function selectManualStudent(student) {
+    setManualSelected(student)
+    setManualResults([])
+    setManualQuery('')
+    setStatus(null)
+  }
+
+  async function handleManualCheckIn(e) {
+    e.preventDefault()
+    if (!manualSelected) return
+
+    setManualSaving(true)
+    setStatus(null)
+
+    const member = manualSelected
+
+    if (member.status !== 'Active') {
+      setManualSaving(false)
+      setStatus({ type: 'error', message: `${member.full_name}'s membership is inactive`, member })
+      return
+    }
+
+    const { data: existing } = await supabase
+      .from('attendance')
+      .select('id')
+      .eq('student_id', member.id)
+      .eq('activity', ACTIVITY)
+      .eq('attendance_date', manualDate)
+      .maybeSingle()
+
+    if (existing) {
+      setManualSaving(false)
+      setStatus({
+        type: 'error',
+        message: `${member.full_name} is already checked in for ${ACTIVITY} on ${formatDateNice(manualDate)}`,
+        member,
+      })
+      return
+    }
+
+    const checkInTimestamp = new Date(`${manualDate}T${manualTime}:00`).toISOString()
+
+    const { error: insertError } = await supabase.from('attendance').insert({
+      student_id: member.id,
+      activity: ACTIVITY,
+      attendance_date: manualDate,
+      check_in_time: checkInTimestamp,
+      // Internal note only — never shown to parents, who just see the
+      // date/activity like any other session. Lets staff tell later that
+      // this one was added by hand instead of scanned live.
+      checked_in_by: 'Manually added (forgot to scan)',
+    })
+
+    if (insertError) {
+      setManualSaving(false)
+      setStatus({ type: 'error', message: insertError.message })
+      return
+    }
+
+    if (member.packages && !member.packages.is_unlimited) {
+      await supabase.from('students').update({
+        remaining_classes: Math.max(0, member.remaining_classes - 1),
+        classes_used: member.classes_used + 1,
+      }).eq('id', member.id)
+    }
+
+    setManualSaving(false)
+    setStatus({
+      type: 'success',
+      message: `Manually checked in for ${ACTIVITY} on ${formatDateNice(manualDate)}`,
+      member,
+    })
+    setManualSelected(null)
+    setManualDate(todayStr())
+    setManualTime(nowTimeStr())
+  }
+
   return (
     <Layout>
       <div className="p-8 max-w-xl mx-auto">
@@ -154,7 +279,7 @@ export default function CheckIn() {
           <p className="text-line-dim text-sm mt-1">Scan a member's QR, or log a walk-in guest — Badminton</p>
         </header>
 
-        <div className="flex justify-center gap-2 mb-6">
+        <div className="flex justify-center gap-2 mb-6 flex-wrap">
           <button onClick={() => { setMode('scan'); setStatus(null) }}
             className={`px-3 py-1.5 rounded-md text-xs font-medium ${mode === 'scan' ? 'bg-court-700 text-line' : 'text-line-dim hover:text-line'}`}>
             Member (scan QR)
@@ -162,6 +287,10 @@ export default function CheckIn() {
           <button onClick={() => { setMode('guest'); setStatus(null) }}
             className={`px-3 py-1.5 rounded-md text-xs font-medium ${mode === 'guest' ? 'bg-court-700 text-line' : 'text-line-dim hover:text-line'}`}>
             Walk-in guest
+          </button>
+          <button onClick={() => { setMode('manual'); setStatus(null) }}
+            className={`px-3 py-1.5 rounded-md text-xs font-medium ${mode === 'manual' ? 'bg-court-700 text-line' : 'text-line-dim hover:text-line'}`}>
+            Manual entry (forgot to scan)
           </button>
         </div>
 
@@ -205,6 +334,97 @@ export default function CheckIn() {
               {guestSaving ? 'Logging…' : 'Log walk-in check-in'}
             </button>
           </form>
+        )}
+
+        {mode === 'manual' && (
+          <div className="bg-court-900 border border-court-700 rounded-xl p-6 space-y-4">
+            <p className="text-[11px] text-line-dim">
+              Only use this if a member's QR was missed at the time (forgotten, staff missed the scan, etc).
+              Set the actual date and time they attended — the record will look exactly like a normal
+              scanned check-in to parents, with no sign it was added later.
+            </p>
+
+            {!manualSelected && (
+              <form onSubmit={handleManualSearch} className="space-y-2">
+                <label className="block text-xs text-line-dim mb-1.5">Find member</label>
+                <div className="flex gap-2">
+                  <input
+                    value={manualQuery}
+                    onChange={(e) => setManualQuery(e.target.value)}
+                    placeholder="Search by name, phone, or code…"
+                    className="flex-1 bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
+                  />
+                  <button type="submit" disabled={manualSearching}
+                    className="bg-court-700 hover:bg-court-600 text-line px-4 py-2 rounded-md text-sm font-medium disabled:opacity-60">
+                    {manualSearching ? '…' : 'Search'}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {!manualSelected && manualResults.length > 0 && (
+              <div className="divide-y divide-court-800 border border-court-700 rounded-lg overflow-hidden">
+                {manualResults.map((s) => (
+                  <button
+                    key={s.id}
+                    onClick={() => selectManualStudent(s)}
+                    className="w-full text-left px-3 py-2.5 hover:bg-court-800 flex items-center justify-between"
+                  >
+                    <span className="text-sm">{s.full_name}</span>
+                    <span className="text-xs text-line-dim font-mono">{s.student_code}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {!manualSelected && manualResults.length === 0 && manualQuery === '' && (
+              <p className="text-xs text-line-dim">Search for the member above to continue.</p>
+            )}
+
+            {manualSelected && (
+              <form onSubmit={handleManualCheckIn} className="space-y-4">
+                <div className="bg-court-800 rounded-lg p-3 flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium">{manualSelected.full_name}</p>
+                    <p className="text-xs text-line-dim font-mono">{manualSelected.student_code}</p>
+                  </div>
+                  <button type="button" onClick={() => setManualSelected(null)}
+                    className="text-xs text-line-dim hover:text-line underline">
+                    Change
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs text-line-dim mb-1.5">Actual date attended</label>
+                    <input
+                      type="date"
+                      required
+                      max={todayStr()}
+                      value={manualDate}
+                      onChange={(e) => setManualDate(e.target.value)}
+                      className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-line-dim mb-1.5">Actual time</label>
+                    <input
+                      type="time"
+                      required
+                      value={manualTime}
+                      onChange={(e) => setManualTime(e.target.value)}
+                      className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
+                    />
+                  </div>
+                </div>
+
+                <button type="submit" disabled={manualSaving}
+                  className="w-full bg-chalk hover:bg-chalk-bright text-court-950 font-semibold py-2.5 rounded-md text-sm disabled:opacity-60">
+                  {manualSaving ? 'Saving…' : 'Add attendance record'}
+                </button>
+              </form>
+            )}
+          </div>
         )}
 
         {status && (
