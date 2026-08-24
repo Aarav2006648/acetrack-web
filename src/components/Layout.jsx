@@ -5,6 +5,7 @@ const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: DashIcon },
   { to: '/checkin', label: 'Check-In', icon: ScanIcon },
   { to: '/students', label: 'Members', icon: PeopleIcon },
+  { to: '/clients', label: 'All Clients', icon: ClientsIcon },
   { to: '/rentals', label: 'Table Rentals', icon: RentalIcon },
   { to: '/reports', label: 'Reports', icon: ReportIcon },
 ]
@@ -88,6 +89,15 @@ function PeopleIcon(props) {
       <path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6" strokeLinecap="round" />
       <circle cx="17" cy="8" r="2.5" />
       <path d="M15.5 14.2c2.6.4 4.5 2.7 4.5 5.8" strokeLinecap="round" />
+    </svg>
+  )
+}
+function ClientsIcon(props) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}>
+      <rect x="3" y="4" width="18" height="16" rx="1.5" />
+      <path d="M3 9h18" strokeLinecap="round" />
+      <path d="M7.5 13h3M7.5 16.5h5" strokeLinecap="round" />
     </svg>
   )
 }
