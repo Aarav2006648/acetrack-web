@@ -39,6 +39,16 @@ export default function Students() {
   const [renewError, setRenewError] = useState('')
   const [renewDone, setRenewDone] = useState(false)
 
+  // ---- per-member attendance history (view / edit / delete) ----
+  const [attendanceRows, setAttendanceRows] = useState([])
+  const [attendanceLoading, setAttendanceLoading] = useState(false)
+  const [attendanceError, setAttendanceError] = useState('')
+  const [attEditingId, setAttEditingId] = useState(null)
+  const [attEditDate, setAttEditDate] = useState('')
+  const [attEditTime, setAttEditTime] = useState('')
+  const [attSaving, setAttSaving] = useState(false)
+  const [attDeletingId, setAttDeletingId] = useState(null)
+
   useEffect(() => {
     loadStudents()
     loadPackages()
@@ -151,6 +161,119 @@ export default function Students() {
     setRenewMethod('Cash')
     setRenewError('')
     setRenewDone(false)
+
+    setAttEditingId(null)
+    setAttendanceError('')
+    loadAttendanceHistory(student.id)
+  }
+
+  function closeEditModal() {
+    setEditStudent(null)
+    setEditForm(null)
+    setEditError('')
+    setAttendanceRows([])
+    setAttEditingId(null)
+    setAttendanceError('')
+  }
+
+  async function loadAttendanceHistory(studentId) {
+    setAttendanceLoading(true)
+    setAttendanceError('')
+
+    const { data, error: loadError } = await supabase
+      .from('attendance')
+      .select('id, activity, attendance_date, check_in_time, checked_in_by')
+      .eq('student_id', studentId)
+      .order('attendance_date', { ascending: false })
+      .order('check_in_time', { ascending: false })
+
+    setAttendanceLoading(false)
+
+    if (loadError) {
+      setAttendanceError(loadError.message)
+      return
+    }
+
+    setAttendanceRows(data || [])
+  }
+
+  function startEditAttendance(row) {
+    setAttEditingId(row.id)
+    setAttEditDate(row.attendance_date)
+    setAttEditTime(new Date(row.check_in_time).toTimeString().slice(0, 5))
+  }
+
+  function cancelEditAttendance() {
+    setAttEditingId(null)
+    setAttEditDate('')
+    setAttEditTime('')
+  }
+
+  async function saveEditAttendance(rowId) {
+    if (!attEditDate || !attEditTime) return
+
+    setAttSaving(true)
+    setAttendanceError('')
+
+    const checkInTimestamp = new Date(`${attEditDate}T${attEditTime}:00`).toISOString()
+
+    const { error: updateError } = await supabase
+      .from('attendance')
+      .update({ attendance_date: attEditDate, check_in_time: checkInTimestamp })
+      .eq('id', rowId)
+
+    setAttSaving(false)
+
+    if (updateError) {
+      setAttendanceError(updateError.message)
+      return
+    }
+
+    setAttEditingId(null)
+    await loadAttendanceHistory(editStudent.id)
+  }
+
+  async function deleteAttendance(row) {
+    if (attDeletingId) return
+
+    const confirmed = window.confirm(
+      `Remove this ${row.activity} check-in from ${new Date(row.attendance_date).toLocaleDateString('en-AE')}?\n\n` +
+        'Use this only if it was added by mistake. This cannot be undone.'
+    )
+
+    if (!confirmed) return
+
+    setAttDeletingId(row.id)
+    setAttendanceError('')
+
+    const { error: deleteError } = await supabase
+      .from('attendance')
+      .delete()
+      .eq('id', row.id)
+
+    if (deleteError) {
+      setAttDeletingId(null)
+      setAttendanceError(deleteError.message)
+      return
+    }
+
+    // Give the class back, since this visit no longer counts — mirrors
+    // the deduction that happens on a normal check-in.
+    if (editStudent.packages && !editStudent.packages.is_unlimited) {
+      const restoredRemaining = (editStudent.remaining_classes ?? 0) + 1
+      const restoredUsed = Math.max(0, (editStudent.classes_used ?? 0) - 1)
+
+      await supabase.from('students').update({
+        remaining_classes: restoredRemaining,
+        classes_used: restoredUsed,
+      }).eq('id', editStudent.id)
+
+      setEditForm((prev) => prev && { ...prev, remaining_classes: restoredRemaining })
+    }
+
+    setAttDeletingId(null)
+    await loadAttendanceHistory(editStudent.id)
+    await loadStudents()
   }
 
   function handleRenewPackageChange(packageId) {
@@ -252,8 +375,7 @@ export default function Students() {
       return
     }
 
-    setEditStudent(null)
-    setEditForm(null)
+    closeEditModal()
 
     await loadStudents()
   }
@@ -283,8 +405,7 @@ export default function Students() {
       return
     }
 
-    setEditStudent(null)
-    setEditForm(null)
+    closeEditModal()
 
     await loadStudents()
   }
@@ -411,7 +532,15 @@ export default function Students() {
       {/* ENROLL MEMBER */}
 
       {showForm && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-20">
+        <div
+          className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-20"
+          onClick={(e) => {
+            if (e.target !== e.currentTarget || saving) return
+            setShowForm(false)
+            setError('')
+            setForm(emptyForm)
+          }}
+        >
           <form
             onSubmit={handleSave}
             className="bg-court-900 border border-court-700 rounded-xl p-6 w-full max-w-sm space-y-4 max-h-[90vh] overflow-y-auto"
@@ -574,7 +703,13 @@ export default function Students() {
       {/* EDIT MEMBER */}
 
       {editStudent && editForm && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-20">
+        <div
+          className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-20"
+          onClick={(e) => {
+            if (e.target !== e.currentTarget || editSaving || deleteSaving) return
+            closeEditModal()
+          }}
+        >
           <div className="bg-court-900 border border-court-700 rounded-xl p-6 w-full max-w-sm space-y-4 max-h-[90vh] overflow-y-auto">
             <h2 className="font-display text-xl">
               EDIT MEMBER
@@ -720,11 +855,7 @@ export default function Students() {
               <div className="flex gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => {
-                    setEditStudent(null)
-                    setEditForm(null)
-                    setEditError('')
-                  }}
+                  onClick={closeEditModal}
                   disabled={editSaving || deleteSaving}
                   className="flex-1 border border-court-600 rounded-md py-2 text-sm text-line-dim hover:bg-court-800 disabled:opacity-60"
                 >
@@ -740,6 +871,113 @@ export default function Students() {
                 </button>
               </div>
             </form>
+
+            {/* ATTENDANCE HISTORY */}
+
+            <div className="border-t border-court-700 pt-4">
+              <h3 className="font-display text-base mb-1">
+                ATTENDANCE HISTORY
+              </h3>
+
+              <p className="text-xs text-line-dim mb-3">
+                Every day this member checked in. Edit the date/time to fix a
+                mistake, or remove a record that was added in error — it
+                updates instantly on the parent's side too.
+              </p>
+
+              {attendanceError && (
+                <p className="text-sm text-danger mb-2">{attendanceError}</p>
+              )}
+
+              {attendanceLoading && (
+                <p className="text-sm text-line-dim">Loading…</p>
+              )}
+
+              {!attendanceLoading && attendanceRows.length === 0 && (
+                <p className="text-sm text-line-dim">No check-ins recorded yet.</p>
+              )}
+
+              {!attendanceLoading && attendanceRows.length > 0 && (
+                <div className="divide-y divide-court-800 max-h-64 overflow-y-auto border border-court-700 rounded-lg">
+                  {attendanceRows.map((row) => (
+                    <div key={row.id} className="px-3 py-2.5">
+                      {attEditingId === row.id ? (
+                        <div className="space-y-2">
+                          <div className="grid grid-cols-2 gap-2">
+                            <input
+                              type="date"
+                              value={attEditDate}
+                              max={new Date().toISOString().slice(0, 10)}
+                              onChange={(e) => setAttEditDate(e.target.value)}
+                              className="w-full bg-court-800 border border-court-600 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-chalk"
+                            />
+                            <input
+                              type="time"
+                              value={attEditTime}
+                              onChange={(e) => setAttEditTime(e.target.value)}
+                              className="w-full bg-court-800 border border-court-600 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-chalk"
+                            />
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={cancelEditAttendance}
+                              disabled={attSaving}
+                              className="flex-1 border border-court-600 rounded-md py-1.5 text-xs text-line-dim hover:bg-court-800 disabled:opacity-60"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => saveEditAttendance(row.id)}
+                              disabled={attSaving}
+                              className="flex-1 bg-chalk hover:bg-chalk-bright text-court-950 font-semibold rounded-md py-1.5 text-xs disabled:opacity-60"
+                            >
+                              {attSaving ? 'Saving…' : 'Save'}
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between gap-2">
+                          <div>
+                            <p className="text-sm">
+                              {new Date(`${row.attendance_date}T00:00:00`).toLocaleDateString('en-AE', {
+                                weekday: 'short',
+                                day: 'numeric',
+                                month: 'short',
+                                year: 'numeric',
+                              })}
+                            </p>
+                            <p className="text-xs text-line-dim">
+                              {row.activity} · {new Date(row.check_in_time).toLocaleTimeString('en-AE', { hour: '2-digit', minute: '2-digit' })}
+                              {row.checked_in_by ? ` · ${row.checked_in_by}` : ''}
+                            </p>
+                          </div>
+                          <div className="flex gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => startEditAttendance(row)}
+                              disabled={attDeletingId === row.id}
+                              className="text-xs text-chalk hover:text-chalk-bright font-medium px-2 py-1 disabled:opacity-60"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => deleteAttendance(row)}
+                              disabled={attDeletingId === row.id}
+                              className="text-xs text-danger hover:text-danger/80 font-medium px-2 py-1 disabled:opacity-60"
+                            >
+                              {attDeletingId === row.id ? 'Removing…' : 'Remove'}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
 
             {/* DELETE MEMBER */}
 
@@ -870,7 +1108,13 @@ export default function Students() {
       {/* QR MODAL */}
 
       {qrStudent && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-20">
+        <div
+          className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-20"
+          onClick={(e) => {
+            if (e.target !== e.currentTarget) return
+            setQrStudent(null)
+          }}
+        >
           <div className="bg-court-900 border border-court-700 rounded-xl p-6 w-full max-w-xs text-center space-y-4">
             <h2 className="font-display text-xl">
               {qrStudent.full_name}
