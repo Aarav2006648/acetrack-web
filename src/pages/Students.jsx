@@ -8,6 +8,8 @@ function makeStudentCode() {
   return `AT-${rand}`
 }
 
+const ACTIVITY = 'Badminton'
+
 const emptyForm = {
   full_name: '',
   phone: '',
@@ -17,12 +19,19 @@ const emptyForm = {
   payment_method: 'Cash',
 }
 
+let pastClassRowId = 0
+function makePastClassRow() {
+  pastClassRowId += 1
+  return { id: pastClassRowId, date: '', time: '' }
+}
+
 export default function Students() {
   const [students, setStudents] = useState([])
   const [packages, setPackages] = useState([])
   const [search, setSearch] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState(emptyForm)
+  const [pastClasses, setPastClasses] = useState([])
   const [qrStudent, setQrStudent] = useState(null)
   const [editStudent, setEditStudent] = useState(null)
   const [editForm, setEditForm] = useState(null)
@@ -48,6 +57,8 @@ export default function Students() {
   const [attEditTime, setAttEditTime] = useState('')
   const [attSaving, setAttSaving] = useState(false)
   const [attDeletingId, setAttDeletingId] = useState(null)
+  const [quickAddRows, setQuickAddRows] = useState([])
+  const [quickAddSaving, setQuickAddSaving] = useState(false)
 
   useEffect(() => {
     loadStudents()
@@ -92,6 +103,18 @@ export default function Students() {
     })
   }
 
+  function addPastClassRow() {
+    setPastClasses([...pastClasses, makePastClassRow()])
+  }
+
+  function updatePastClassRow(id, field, value) {
+    setPastClasses(pastClasses.map((r) => (r.id === id ? { ...r, [field]: value } : r)))
+  }
+
+  function removePastClassRow(id) {
+    setPastClasses(pastClasses.filter((r) => r.id !== id))
+  }
+
   async function handleSave(e) {
     e.preventDefault()
     setError('')
@@ -133,8 +156,46 @@ export default function Students() {
       }
     }
 
+    // Backfill any classes they already attended before being added to the
+    // system, so their history and remaining classes are accurate from day one.
+    const validPastClasses = pastClasses.filter((r) => r.date)
+
+    if (validPastClasses.length > 0) {
+      const attendanceInserts = validPastClasses.map((r) => ({
+        student_id: newStudent.id,
+        activity: ACTIVITY,
+        attendance_date: r.date,
+        check_in_time: new Date(`${r.date}T${r.time || '12:00'}:00`).toISOString(),
+        checked_in_by: 'Backfilled at enrollment (past class)',
+      }))
+
+      const { error: attendanceError } = await supabase.from('attendance').insert(attendanceInserts)
+
+      if (attendanceError) {
+        setSaving(false)
+        setError(`Member saved, but past classes could not be logged: ${attendanceError.message}`)
+        return
+      }
+
+      if (pkg && !pkg.is_unlimited) {
+        const newRemaining = Math.max(0, pkg.total_classes - validPastClasses.length)
+
+        const { error: classCountError } = await supabase
+          .from('students')
+          .update({ remaining_classes: newRemaining, classes_used: validPastClasses.length })
+          .eq('id', newStudent.id)
+
+        if (classCountError) {
+          setSaving(false)
+          setError(`Member and past classes saved, but class count could not be updated: ${classCountError.message}`)
+          return
+        }
+      }
+    }
+
     setSaving(false)
     setForm(emptyForm)
+    setPastClasses([])
     setShowForm(false)
 
     await loadStudents()
@@ -151,6 +212,7 @@ export default function Students() {
       email: student.email || '',
       package_id: student.package_id || '',
       remaining_classes: student.remaining_classes ?? 0,
+      classes_used: student.classes_used ?? 0,
       status: student.status,
     })
 
@@ -164,6 +226,7 @@ export default function Students() {
 
     setAttEditingId(null)
     setAttendanceError('')
+    setQuickAddRows([])
     loadAttendanceHistory(student.id)
   }
 
@@ -174,6 +237,7 @@ export default function Students() {
     setAttendanceRows([])
     setAttEditingId(null)
     setAttendanceError('')
+    setQuickAddRows([])
   }
 
   async function loadAttendanceHistory(studentId) {
@@ -258,20 +322,83 @@ export default function Students() {
     }
 
     // Give the class back, since this visit no longer counts — mirrors
-    // the deduction that happens on a normal check-in.
+    // the deduction that happens on a normal check-in. Uses the live
+    // editForm numbers (not the original editStudent snapshot) so this
+    // stays correct even after multiple edits in the same session.
     if (editStudent.packages && !editStudent.packages.is_unlimited) {
-      const restoredRemaining = (editStudent.remaining_classes ?? 0) + 1
-      const restoredUsed = Math.max(0, (editStudent.classes_used ?? 0) - 1)
+      const restoredRemaining = (editForm?.remaining_classes ?? 0) + 1
+      const restoredUsed = Math.max(0, (editForm?.classes_used ?? 0) - 1)
 
       await supabase.from('students').update({
         remaining_classes: restoredRemaining,
         classes_used: restoredUsed,
       }).eq('id', editStudent.id)
 
-      setEditForm((prev) => prev && { ...prev, remaining_classes: restoredRemaining })
+      setEditForm((prev) => prev && { ...prev, remaining_classes: restoredRemaining, classes_used: restoredUsed })
     }
 
     setAttDeletingId(null)
+    await loadAttendanceHistory(editStudent.id)
+    await loadStudents()
+  }
+
+  function addQuickAddRow() {
+    setQuickAddRows([...quickAddRows, makePastClassRow()])
+  }
+
+  function updateQuickAddRow(id, field, value) {
+    setQuickAddRows(quickAddRows.map((r) => (r.id === id ? { ...r, [field]: value } : r)))
+  }
+
+  function removeQuickAddRow(id) {
+    setQuickAddRows(quickAddRows.filter((r) => r.id !== id))
+  }
+
+  async function saveQuickAddClasses() {
+    const validRows = quickAddRows.filter((r) => r.date)
+    if (validRows.length === 0 || quickAddSaving) return
+
+    setQuickAddSaving(true)
+    setAttendanceError('')
+
+    const attendanceInserts = validRows.map((r) => ({
+      student_id: editStudent.id,
+      activity: ACTIVITY,
+      attendance_date: r.date,
+      check_in_time: new Date(`${r.date}T${r.time || '12:00'}:00`).toISOString(),
+      checked_in_by: 'Backfilled (added after enrollment)',
+    }))
+
+    const { error: insertError } = await supabase.from('attendance').insert(attendanceInserts)
+
+    if (insertError) {
+      setQuickAddSaving(false)
+      setAttendanceError(insertError.message)
+      return
+    }
+
+    if (editStudent.packages && !editStudent.packages.is_unlimited) {
+      const newRemaining = Math.max(0, (editForm?.remaining_classes ?? 0) - validRows.length)
+      const newUsed = (editForm?.classes_used ?? 0) + validRows.length
+
+      const { error: updateError } = await supabase
+        .from('students')
+        .update({ remaining_classes: newRemaining, classes_used: newUsed })
+        .eq('id', editStudent.id)
+
+      if (updateError) {
+        setQuickAddSaving(false)
+        setAttendanceError(`Classes were logged, but the remaining count couldn't be updated: ${updateError.message}`)
+        setQuickAddRows([])
+        await loadAttendanceHistory(editStudent.id)
+        return
+      }
+
+      setEditForm((prev) => prev && { ...prev, remaining_classes: newRemaining, classes_used: newUsed })
+    }
+
+    setQuickAddSaving(false)
+    setQuickAddRows([])
     await loadAttendanceHistory(editStudent.id)
     await loadStudents()
   }
@@ -539,6 +666,7 @@ export default function Students() {
             setShowForm(false)
             setError('')
             setForm(emptyForm)
+            setPastClasses([])
           }}
         >
           <form
@@ -669,6 +797,66 @@ export default function Students() {
               </select>
             </div>
 
+            <div className="border-t border-court-700 pt-4">
+              <label className="block text-xs text-line-dim mb-1.5">
+                Already attended a few classes? (optional)
+              </label>
+
+              <p className="text-[11px] text-line-dim mb-2">
+                If they're an existing student being added to the system,
+                log the classes they already came for so their history and
+                remaining classes are correct right away — no need to open
+                their profile afterwards.
+              </p>
+
+              {pastClasses.length > 0 && (
+                <div className="space-y-2 mb-2">
+                  {pastClasses.map((row) => (
+                    <div key={row.id} className="flex gap-2 items-center">
+                      <input
+                        type="date"
+                        required
+                        max={new Date().toISOString().slice(0, 10)}
+                        value={row.date}
+                        onChange={(e) => updatePastClassRow(row.id, 'date', e.target.value)}
+                        className="flex-1 bg-court-800 border border-court-600 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-chalk"
+                      />
+                      <input
+                        type="time"
+                        value={row.time}
+                        onChange={(e) => updatePastClassRow(row.id, 'time', e.target.value)}
+                        className="w-24 bg-court-800 border border-court-600 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-chalk"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removePastClassRow(row.id)}
+                        className="text-line-dim hover:text-danger text-lg leading-none px-1"
+                        aria-label="Remove this class"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={addPastClassRow}
+                className="text-xs text-chalk hover:text-chalk-bright font-medium"
+              >
+                + Add a class they already attended
+              </button>
+
+              {pastClasses.length > 0 && (
+                <p className="text-[11px] text-line-dim mt-2">
+                  {pastClasses.filter((r) => r.date).length} class
+                  {pastClasses.filter((r) => r.date).length === 1 ? '' : 'es'} will
+                  be deducted from their new package right away.
+                </p>
+              )}
+            </div>
+
             {error && (
               <p className="text-sm text-danger">
                 {error}
@@ -682,6 +870,7 @@ export default function Students() {
                   setShowForm(false)
                   setError('')
                   setForm(emptyForm)
+                  setPastClasses([])
                 }}
                 className="flex-1 border border-court-600 rounded-md py-2 text-sm text-line-dim hover:bg-court-800"
               >
@@ -884,6 +1073,67 @@ export default function Students() {
                 mistake, or remove a record that was added in error — it
                 updates instantly on the parent's side too.
               </p>
+
+              <div className="bg-court-800/60 border border-court-700 rounded-lg p-3 mb-4">
+                <p className="text-xs text-line-dim mb-2">
+                  Add classes they already attended (e.g. before being added
+                  to the system) — no need to redo their enrollment.
+                </p>
+
+                {quickAddRows.length > 0 && (
+                  <div className="space-y-2 mb-2">
+                    {quickAddRows.map((row) => (
+                      <div key={row.id} className="flex gap-2 items-center">
+                        <input
+                          type="date"
+                          required
+                          max={new Date().toISOString().slice(0, 10)}
+                          value={row.date}
+                          onChange={(e) => updateQuickAddRow(row.id, 'date', e.target.value)}
+                          className="flex-1 bg-court-800 border border-court-600 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-chalk"
+                        />
+                        <input
+                          type="time"
+                          value={row.time}
+                          onChange={(e) => updateQuickAddRow(row.id, 'time', e.target.value)}
+                          className="w-24 bg-court-800 border border-court-600 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-chalk"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeQuickAddRow(row.id)}
+                          className="text-line-dim hover:text-danger text-lg leading-none px-1"
+                          aria-label="Remove this class"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={addQuickAddRow}
+                    className="text-xs text-chalk hover:text-chalk-bright font-medium"
+                  >
+                    + Add a class
+                  </button>
+
+                  {quickAddRows.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={saveQuickAddClasses}
+                      disabled={quickAddSaving || quickAddRows.filter((r) => r.date).length === 0}
+                      className="bg-chalk hover:bg-chalk-bright text-court-950 font-semibold rounded-md px-3 py-1.5 text-xs disabled:opacity-60"
+                    >
+                      {quickAddSaving
+                        ? 'Saving…'
+                        : `Save ${quickAddRows.filter((r) => r.date).length || ''} class${quickAddRows.filter((r) => r.date).length === 1 ? '' : 'es'}`}
+                    </button>
+                  )}
+                </div>
+              </div>
 
               {attendanceError && (
                 <p className="text-sm text-danger mb-2">{attendanceError}</p>
