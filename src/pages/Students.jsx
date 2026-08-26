@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { QRCodeCanvas } from 'qrcode.react'
 import Layout from '../components/Layout'
 import { supabase } from '../lib/supabaseClient'
+import { normalizePhone } from '../lib/phone'
 
 function makeStudentCode() {
   const rand = Math.random().toString(36).slice(2, 7).toUpperCase()
@@ -32,6 +33,7 @@ export default function Students() {
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState(emptyForm)
   const [pastClasses, setPastClasses] = useState([])
+  const [duplicateWarning, setDuplicateWarning] = useState(null)
   const [qrStudent, setQrStudent] = useState(null)
   const [editStudent, setEditStudent] = useState(null)
   const [editForm, setEditForm] = useState(null)
@@ -118,6 +120,28 @@ export default function Students() {
   async function handleSave(e) {
     e.preventDefault()
     setError('')
+
+    // Cross-check against existing members by phone (strong signal) or
+    // name (weaker, since names repeat) before creating a new profile —
+    // unless staff already confirmed they want a new profile anyway.
+    if (duplicateWarning !== 'ignored') {
+      const normalizedNewPhone = normalizePhone(form.phone)
+      const typedName = form.full_name.trim().toLowerCase()
+
+      const phoneMatch = normalizedNewPhone
+        ? students.find((s) => normalizePhone(s.phone) === normalizedNewPhone)
+        : null
+
+      const nameMatch = !phoneMatch && typedName
+        ? students.find((s) => s.full_name.trim().toLowerCase() === typedName)
+        : null
+
+      if (phoneMatch || nameMatch) {
+        setDuplicateWarning({ match: phoneMatch || nameMatch, reason: phoneMatch ? 'phone' : 'name' })
+        return
+      }
+    }
+
     setSaving(true)
 
     const pkg = packages.find((p) => p.id === form.package_id)
@@ -196,6 +220,7 @@ export default function Students() {
     setSaving(false)
     setForm(emptyForm)
     setPastClasses([])
+    setDuplicateWarning(null)
     setShowForm(false)
 
     await loadStudents()
@@ -667,6 +692,7 @@ export default function Students() {
             setError('')
             setForm(emptyForm)
             setPastClasses([])
+            setDuplicateWarning(null)
           }}
         >
           <form
@@ -683,12 +709,13 @@ export default function Students() {
               <input
                 required
                 value={form.full_name}
-                onChange={(e) =>
+                onChange={(e) => {
                   setForm({
                     ...form,
                     full_name: e.target.value,
                   })
-                }
+                  setDuplicateWarning(null)
+                }}
                 className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
               />
             </div>
@@ -701,12 +728,13 @@ export default function Students() {
               <input
                 required
                 value={form.phone}
-                onChange={(e) =>
+                onChange={(e) => {
                   setForm({
                     ...form,
                     phone: e.target.value,
                   })
-                }
+                  setDuplicateWarning(null)
+                }}
                 className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
               />
             </div>
@@ -857,6 +885,49 @@ export default function Students() {
               )}
             </div>
 
+            {duplicateWarning && duplicateWarning !== 'ignored' && (
+              <div className="bg-chalk/10 border border-chalk/40 rounded-lg p-3 space-y-2">
+                <p className="text-sm">
+                  {duplicateWarning.reason === 'phone' ? (
+                    <>
+                      This phone number is already registered to{' '}
+                      <strong>{duplicateWarning.match.full_name}</strong>{' '}
+                      ({duplicateWarning.match.status}).
+                    </>
+                  ) : (
+                    <>
+                      A member named <strong>{duplicateWarning.match.full_name}</strong>{' '}
+                      already exists with a different phone number — just checking
+                      this isn't the same person entered twice.
+                    </>
+                  )}
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const match = duplicateWarning.match
+                      setShowForm(false)
+                      setForm(emptyForm)
+                      setPastClasses([])
+                      setDuplicateWarning(null)
+                      openEdit(match)
+                    }}
+                    className="flex-1 bg-chalk hover:bg-chalk-bright text-court-950 font-semibold rounded-md py-2 text-xs"
+                  >
+                    Open {duplicateWarning.match.full_name} to renew
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDuplicateWarning('ignored')}
+                    className="flex-1 border border-court-600 rounded-md py-2 text-xs text-line-dim hover:bg-court-800"
+                  >
+                    No, create as new member
+                  </button>
+                </div>
+              </div>
+            )}
+
             {error && (
               <p className="text-sm text-danger">
                 {error}
@@ -871,6 +942,7 @@ export default function Students() {
                   setError('')
                   setForm(emptyForm)
                   setPastClasses([])
+                  setDuplicateWarning(null)
                 }}
                 className="flex-1 border border-court-600 rounded-md py-2 text-sm text-line-dim hover:bg-court-800"
               >
@@ -879,7 +951,7 @@ export default function Students() {
 
               <button
                 type="submit"
-                disabled={saving}
+                disabled={saving || (duplicateWarning && duplicateWarning !== 'ignored')}
                 className="flex-1 bg-chalk hover:bg-chalk-bright text-court-950 font-semibold rounded-md py-2 text-sm disabled:opacity-60"
               >
                 {saving ? 'Saving…' : 'Save member'}
@@ -1472,7 +1544,7 @@ async function copyQRToClipboard(student) {
    ========================================================= */
 
 async function shareQROnWhatsApp(student) {
-  const phone = normalizeWhatsAppPhone(student.phone)
+  const phone = normalizePhone(student.phone)
 
   if (!phone) {
     window.alert(
@@ -1509,17 +1581,7 @@ async function shareQROnWhatsApp(student) {
    WHATSAPP PHONE NUMBER NORMALIZATION
    ========================================================= */
 
-function normalizeWhatsAppPhone(phone) {
-  if (!phone) return ''
+// Now shared across the app (see ../lib/phone) so a number typed as
+// "501234567" (missing the leading 0) still matches "0501234567"
+// everywhere — WhatsApp links, duplicate-member detection, etc.
 
-  // Keep digits only.
-  let digits = String(phone).replace(/\D/g, '')
-
-  // UAE convenience:
-  // 0501234567 -> 971501234567
-  if (digits.startsWith('05') && digits.length === 10) {
-    digits = `971${digits.slice(1)}`
-  }
-
-  return digits
-}

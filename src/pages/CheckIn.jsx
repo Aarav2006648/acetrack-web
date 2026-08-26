@@ -36,6 +36,8 @@ export default function CheckIn() {
 
   const [guestName, setGuestName] = useState('')
   const [guestPhone, setGuestPhone] = useState('')
+  const [guestCourt, setGuestCourt] = useState('')
+  const [guestTime, setGuestTime] = useState(nowTimeStr())
   const [guestAmount, setGuestAmount] = useState('')
   const [guestPaymentStatus, setGuestPaymentStatus] = useState('Paid')
   const [guestSaving, setGuestSaving] = useState(false)
@@ -167,11 +169,18 @@ export default function CheckIn() {
     setGuestSaving(true)
     setStatus(null)
 
+    // Booking time is editable so staff can log a walk-in booked for
+    // later (e.g. it's 2pm but they've booked the 4pm slot) instead of
+    // always stamping the moment they typed it in.
+    const checkInTimestamp = new Date(`${todayStr()}T${guestTime || nowTimeStr()}:00`).toISOString()
+
     const { error } = await supabase.from('attendance').insert({
       student_id: null,
       guest_name: guestName,
       guest_phone: guestPhone || null,
       activity: ACTIVITY,
+      court_number: guestCourt || null,
+      check_in_time: checkInTimestamp,
       amount: guestAmount !== '' ? Number(guestAmount) : null,
       payment_status: guestPaymentStatus,
     })
@@ -186,6 +195,8 @@ export default function CheckIn() {
     setStatus({ type: 'success', message: `Checked in for ${ACTIVITY}`, member: { full_name: `${guestName} (guest)` } })
     setGuestName('')
     setGuestPhone('')
+    setGuestCourt('')
+    setGuestTime(nowTimeStr())
     setGuestAmount('')
     setGuestPaymentStatus('Paid')
   }
@@ -373,6 +384,18 @@ export default function CheckIn() {
             </div>
             <div className="grid grid-cols-2 gap-3 sm:gap-4">
               <div>
+                <label className="block text-xs text-line-dim mb-1.5">Court</label>
+                <input value={guestCourt} onChange={(e) => setGuestCourt(e.target.value)} placeholder="e.g. 2"
+                  className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2.5 text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-chalk" />
+              </div>
+              <div>
+                <label className="block text-xs text-line-dim mb-1.5">Booked for</label>
+                <input type="time" required value={guestTime} onChange={(e) => setGuestTime(e.target.value)}
+                  className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2.5 text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-chalk" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3 sm:gap-4">
+              <div>
                 <label className="block text-xs text-line-dim mb-1.5">Amount (AED)</label>
                 <input type="number" step="0.01" min="0" value={guestAmount} onChange={(e) => setGuestAmount(e.target.value)}
                   placeholder="e.g. 40"
@@ -387,6 +410,11 @@ export default function CheckIn() {
                 </select>
               </div>
             </div>
+            <p className="text-[11px] text-line-dim">
+              If they're paying after their session (e.g. booked for later), leave this as
+              Pending — it'll show up on the Announcements page as a reminder to collect
+              payment and mark it Paid.
+            </p>
             <p className="text-[11px] text-line-dim">This won't create a member profile or QR code — just a one-off attendance + payment record for {ACTIVITY}.</p>
             <button type="submit" disabled={guestSaving}
               className="w-full bg-chalk hover:bg-chalk-bright text-court-950 font-semibold py-3 rounded-md text-sm disabled:opacity-60">
