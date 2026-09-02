@@ -3,28 +3,8 @@ import Papa from 'papaparse'
 import Layout from '../components/Layout'
 import { supabase } from '../lib/supabaseClient'
 import { normalizePhone } from '../lib/phone'
-
-const PAGE_SIZE = 1000
-
-// Supabase caps a single query at 1000 rows by default. This pages through
-// with .range() so directories with 500+ (or many thousands of) people are
-// still fetched in full, not silently truncated.
-async function fetchAllRows(queryFn) {
-  let rows = []
-  let from = 0
-
-  while (true) {
-    const { data, error } = await queryFn(from, from + PAGE_SIZE - 1)
-    if (error) throw error
-
-    rows = rows.concat(data || [])
-
-    if (!data || data.length < PAGE_SIZE) break
-    from += PAGE_SIZE
-  }
-
-  return rows
-}
+import { groupVisitsByMonth } from '../lib/monthGroups'
+import { fetchAllRows } from '../lib/fetchAllRows'
 
 // A guest's key for grouping repeat visits into one row: their normalized
 // phone number when they gave one (so "0501234567" and "501234567" merge
@@ -89,6 +69,12 @@ export default function Clients() {
   const [historyRows, setHistoryRows] = useState([])
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyError, setHistoryError] = useState('')
+  const [selectedMonth, setSelectedMonth] = useState(null)
+
+  const historyMonths = useMemo(() => groupVisitsByMonth(historyRows, 'date'), [historyRows])
+  const visibleHistoryRows = selectedMonth
+    ? historyMonths.find((m) => m.key === selectedMonth)?.items || []
+    : historyRows
 
   useEffect(() => {
     loadAll()
@@ -180,6 +166,7 @@ export default function Clients() {
     setHistoryFor(row)
     setHistoryError('')
     setHistoryRows([])
+    setSelectedMonth(null)
 
     if (row.type === 'Member') {
       setHistoryLoading(true)
@@ -238,6 +225,7 @@ export default function Clients() {
     setHistoryFor(null)
     setHistoryRows([])
     setHistoryError('')
+    setSelectedMonth(null)
   }
 
   return (
@@ -370,25 +358,49 @@ export default function Clients() {
             )}
 
             {!historyLoading && historyRows.length > 0 && (
-              <div className="divide-y divide-court-800 border border-court-700 rounded-lg overflow-hidden">
-                {historyRows.map((row) => (
-                  <div key={row.key} className="px-3 py-2.5">
-                    <p className="text-sm">
-                      {new Date(`${row.date}T00:00:00`).toLocaleDateString('en-AE', {
-                        weekday: 'short',
-                        day: 'numeric',
-                        month: 'short',
-                        year: 'numeric',
-                      })}
-                    </p>
-                    <p className="text-xs text-line-dim">
-                      {row.activity}
-                      {row.court ? ` · Court ${row.court}` : ''}
-                      {row.time ? ` · ${new Date(row.time).toLocaleTimeString('en-AE', { hour: '2-digit', minute: '2-digit' })}` : ''}
-                    </p>
-                  </div>
-                ))}
-              </div>
+              <>
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    onClick={() => setSelectedMonth(null)}
+                    className={`text-xs px-2.5 py-1 rounded-full font-medium ${
+                      selectedMonth === null ? 'bg-chalk text-court-950' : 'bg-court-800 text-line-dim hover:text-line'
+                    }`}
+                  >
+                    All ({historyRows.length})
+                  </button>
+                  {historyMonths.map((m) => (
+                    <button
+                      key={m.key}
+                      onClick={() => setSelectedMonth(m.key)}
+                      className={`text-xs px-2.5 py-1 rounded-full font-medium ${
+                        selectedMonth === m.key ? 'bg-chalk text-court-950' : 'bg-court-800 text-line-dim hover:text-line'
+                      }`}
+                    >
+                      {m.label} ({m.items.length})
+                    </button>
+                  ))}
+                </div>
+
+                <div className="divide-y divide-court-800 border border-court-700 rounded-lg overflow-hidden">
+                  {visibleHistoryRows.map((row) => (
+                    <div key={row.key} className="px-3 py-2.5">
+                      <p className="text-sm">
+                        {new Date(`${row.date}T00:00:00`).toLocaleDateString('en-AE', {
+                          weekday: 'short',
+                          day: 'numeric',
+                          month: 'short',
+                          year: 'numeric',
+                        })}
+                      </p>
+                      <p className="text-xs text-line-dim">
+                        {row.activity}
+                        {row.court ? ` · Court ${row.court}` : ''}
+                        {row.time ? ` · ${new Date(row.time).toLocaleTimeString('en-AE', { hour: '2-digit', minute: '2-digit' })}` : ''}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </>
             )}
           </div>
         </div>

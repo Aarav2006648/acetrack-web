@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { QRCodeCanvas } from 'qrcode.react'
 import Layout from '../components/Layout'
 import { supabase } from '../lib/supabaseClient'
 import { normalizePhone } from '../lib/phone'
+import { groupVisitsByMonth } from '../lib/monthGroups'
 
 function makeStudentCode() {
   const rand = Math.random().toString(36).slice(2, 7).toUpperCase()
@@ -59,6 +60,15 @@ export default function Students() {
   const [attEditTime, setAttEditTime] = useState('')
   const [attSaving, setAttSaving] = useState(false)
   const [attDeletingId, setAttDeletingId] = useState(null)
+  const [attSelectedMonth, setAttSelectedMonth] = useState(null)
+
+  const attendanceMonths = useMemo(
+    () => groupVisitsByMonth(attendanceRows, 'attendance_date'),
+    [attendanceRows]
+  )
+  const visibleAttendanceRows = attSelectedMonth
+    ? attendanceMonths.find((m) => m.key === attSelectedMonth)?.items || []
+    : attendanceRows
   const [quickAddRows, setQuickAddRows] = useState([])
   const [quickAddSaving, setQuickAddSaving] = useState(false)
 
@@ -252,6 +262,7 @@ export default function Students() {
     setAttEditingId(null)
     setAttendanceError('')
     setQuickAddRows([])
+    setAttSelectedMonth(null)
     loadAttendanceHistory(student.id)
   }
 
@@ -263,6 +274,7 @@ export default function Students() {
     setAttEditingId(null)
     setAttendanceError('')
     setQuickAddRows([])
+    setAttSelectedMonth(null)
   }
 
   async function loadAttendanceHistory(studentId) {
@@ -1220,8 +1232,33 @@ export default function Students() {
               )}
 
               {!attendanceLoading && attendanceRows.length > 0 && (
-                <div className="divide-y divide-court-800 max-h-64 overflow-y-auto border border-court-700 rounded-lg">
-                  {attendanceRows.map((row) => (
+                <>
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    <button
+                      type="button"
+                      onClick={() => setAttSelectedMonth(null)}
+                      className={`text-xs px-2.5 py-1 rounded-full font-medium ${
+                        attSelectedMonth === null ? 'bg-chalk text-court-950' : 'bg-court-800 text-line-dim hover:text-line'
+                      }`}
+                    >
+                      All ({attendanceRows.length})
+                    </button>
+                    {attendanceMonths.map((m) => (
+                      <button
+                        type="button"
+                        key={m.key}
+                        onClick={() => setAttSelectedMonth(m.key)}
+                        className={`text-xs px-2.5 py-1 rounded-full font-medium ${
+                          attSelectedMonth === m.key ? 'bg-chalk text-court-950' : 'bg-court-800 text-line-dim hover:text-line'
+                        }`}
+                      >
+                        {m.label} ({m.items.length})
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="divide-y divide-court-800 max-h-64 overflow-y-auto border border-court-700 rounded-lg">
+                    {visibleAttendanceRows.map((row) => (
                     <div key={row.id} className="px-3 py-2.5">
                       {attEditingId === row.id ? (
                         <div className="space-y-2">
@@ -1297,7 +1334,8 @@ export default function Students() {
                       )}
                     </div>
                   ))}
-                </div>
+                  </div>
+                </>
               )}
             </div>
 

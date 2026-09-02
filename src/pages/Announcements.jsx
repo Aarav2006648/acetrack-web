@@ -2,8 +2,18 @@ import { useEffect, useState } from 'react'
 import Layout from '../components/Layout'
 import { supabase } from '../lib/supabaseClient'
 import { normalizePhone } from '../lib/phone'
+import { fetchAllRows } from '../lib/fetchAllRows'
 
 const todayStr = () => new Date().toISOString().slice(0, 10)
+
+// How many days of no check-ins before a still-active member gets flagged
+// as "hasn't been seen" — tweak this single number if the club wants a
+// shorter/longer window than a week.
+const INACTIVITY_DAYS = 7
+
+function daysBetween(a, b) {
+  return Math.floor((a - b) / (1000 * 60 * 60 * 24))
+}
 
 function buildRenewalMessage(student) {
   const name = student.full_name
@@ -18,6 +28,10 @@ function formatTime(ts) {
 }
 
 export default function Announcements() {
+  const [inactive, setInactive] = useState([])
+  const [inactiveLoading, setInactiveLoading] = useState(true)
+  const [inactiveError, setInactiveError] = useState('')
+
   const [renewals, setRenewals] = useState([])
   const [renewalsLoading, setRenewalsLoading] = useState(true)
   const [sentId, setSentId] = useState(null)
@@ -31,10 +45,65 @@ export default function Announcements() {
   const [walkInsLoading, setWalkInsLoading] = useState(true)
 
   useEffect(() => {
+    loadInactive()
     loadRenewals()
     loadPending()
     loadTodaysWalkIns()
   }, [])
+
+  // Flags Active members who still have classes left (or an unlimited
+  // package) but haven't checked in for INACTIVITY_DAYS — a nudge to call
+  // the parent and check in, rather than waiting for them to just fade out.
+  async function loadInactive() {
+    setInactiveLoading(true)
+    setInactiveError('')
+
+    try {
+      const [activeStudentsRes, attendanceRows] = await Promise.all([
+        supabase
+          .from('students')
+          .select('id, full_name, phone, join_date, remaining_classes, packages(is_unlimited)')
+          .eq('status', 'Active'),
+        fetchAllRows((from, to) =>
+          supabase
+            .from('attendance')
+            .select('student_id, check_in_time')
+            .not('student_id', 'is', null)
+            .range(from, to)
+        ),
+      ])
+
+      if (activeStudentsRes.error) throw activeStudentsRes.error
+
+      const lastVisitByStudent = new Map()
+      for (const row of attendanceRows) {
+        const existing = lastVisitByStudent.get(row.student_id)
+        if (!existing || row.check_in_time > existing) {
+          lastVisitByStudent.set(row.student_id, row.check_in_time)
+        }
+      }
+
+      const now = new Date()
+
+      const flagged = (activeStudentsRes.data || [])
+        .filter((s) => s.packages?.is_unlimited || s.remaining_classes > 0)
+        .map((s) => {
+          const lastVisit = lastVisitByStudent.get(s.id) || null
+          // No visit on record yet — measure from their join date instead,
+          // so a member who joined yesterday isn't immediately flagged.
+          const referenceDate = lastVisit ? new Date(lastVisit) : new Date(`${s.join_date}T00:00:00`)
+          return { ...s, lastVisit, daysSince: daysBetween(now, referenceDate) }
+        })
+        .filter((s) => s.daysSince >= INACTIVITY_DAYS)
+        .sort((a, b) => b.daysSince - a.daysSince)
+
+      setInactive(flagged)
+    } catch (err) {
+      setInactiveError(err.message || 'Could not check attendance.')
+    } finally {
+      setInactiveLoading(false)
+    }
+  }
 
   async function loadRenewals() {
     setRenewalsLoading(true)
@@ -201,8 +270,52 @@ export default function Announcements() {
       <div className="p-4 sm:p-8 max-w-4xl">
         <header className="mb-6">
           <h1 className="font-display text-3xl">ANNOUNCEMENTS</h1>
-          <p className="text-line-dim text-sm mt-1">Renewal reminders, pending payments, and today's walk-ins</p>
+          <p className="text-line-dim text-sm mt-1">Inactivity alerts, renewal reminders, pending payments, and today's walk-ins</p>
         </header>
+
+        {/* NOT SEEN RECENTLY */}
+        <section className="mb-8">
+          <h2 className="font-display text-lg tracking-wide mb-3">HASN'T ATTENDED RECENTLY</h2>
+          <p className="text-xs text-line-dim mb-3">
+            Active members with classes remaining who haven't checked in for {INACTIVITY_DAYS}+ days —
+            worth a call to their parent to check in.
+          </p>
+          {inactiveError && <p className="text-sm text-danger mb-2">{inactiveError}</p>}
+          <div className="bg-court-900 border border-court-700 rounded-xl overflow-hidden">
+            {inactiveLoading && <p className="px-5 py-6 text-sm text-line-dim">Checking attendance…</p>}
+            {!inactiveLoading && inactive.length === 0 && (
+              <p className="px-5 py-6 text-sm text-line-dim">Everyone's been showing up — nothing to flag.</p>
+            )}
+            <div className="divide-y divide-court-800">
+              {inactive.map((s) => {
+                const phone = normalizePhone(s.phone)
+                return (
+                  <div key={s.id} className="px-5 py-3 flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium">{s.full_name}</p>
+                      <p className="text-xs text-line-dim">
+                        {s.lastVisit
+                          ? `Last seen ${new Date(s.lastVisit).toLocaleDateString('en-AE', { day: 'numeric', month: 'short' })}`
+                          : `Never checked in since joining ${new Date(`${s.join_date}T00:00:00`).toLocaleDateString('en-AE', { day: 'numeric', month: 'short' })}`}
+                        {' · '}{s.daysSince} days ago
+                      </p>
+                    </div>
+                    {phone ? (
+                      <a
+                        href={`tel:${phone}`}
+                        className="text-xs bg-danger/15 hover:bg-danger/25 text-danger px-3 py-1.5 rounded-md font-medium transition-colors shrink-0"
+                      >
+                        Call {s.phone}
+                      </a>
+                    ) : (
+                      <span className="text-xs text-line-dim shrink-0">No phone on file</span>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </section>
 
         {/* RENEWALS */}
         <section className="mb-8">
