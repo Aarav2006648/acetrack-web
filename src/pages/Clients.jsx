@@ -2,18 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import Papa from 'papaparse'
 import Layout from '../components/Layout'
 import { supabase } from '../lib/supabaseClient'
-import { normalizePhone } from '../lib/phone'
-import { groupVisitsByMonth } from '../lib/monthGroups'
+import { guestKeyFor } from '../lib/phone'
 import { fetchAllRows } from '../lib/fetchAllRows'
-
-// A guest's key for grouping repeat visits into one row: their normalized
-// phone number when they gave one (so "0501234567" and "501234567" merge
-// into the same person), falling back to their name if no phone was given.
-function guestKeyFor(guestPhone, guestName) {
-  const normalized = normalizePhone(guestPhone)
-  if (normalized) return `phone:${normalized}`
-  return `name:${(guestName || 'Unknown guest').trim().toLowerCase()}`
-}
 
 // Guest visits (badminton walk-ins, billiards rentals) are logged per-visit,
 // not as a single client record — so multiple visits from the same person
@@ -58,23 +48,6 @@ export default function Clients() {
   const [errorMsg, setErrorMsg] = useState('')
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('All')
-
-  // Raw per-visit rows kept around (not just the deduped summary) so a
-  // click on a walk-in can show every date/time they came, without an
-  // extra round trip to the database.
-  const [badmintonGuestVisits, setBadmintonGuestVisits] = useState([])
-  const [rentalGuestVisits, setRentalGuestVisits] = useState([])
-
-  const [historyFor, setHistoryFor] = useState(null)
-  const [historyRows, setHistoryRows] = useState([])
-  const [historyLoading, setHistoryLoading] = useState(false)
-  const [historyError, setHistoryError] = useState('')
-  const [selectedMonth, setSelectedMonth] = useState(null)
-
-  const historyMonths = useMemo(() => groupVisitsByMonth(historyRows, 'date'), [historyRows])
-  const visibleHistoryRows = selectedMonth
-    ? historyMonths.find((m) => m.key === selectedMonth)?.items || []
-    : historyRows
 
   useEffect(() => {
     loadAll()
@@ -123,8 +96,6 @@ export default function Clients() {
       const badmintonRows = dedupeGuestVisits(badmintonGuests, 'Walk-in (Badminton)', 'attendance_date')
       const rentalRows = dedupeGuestVisits(rentalGuests, 'Walk-in (Billiards)', 'booking_date')
 
-      setBadmintonGuestVisits(badmintonGuests)
-      setRentalGuestVisits(rentalGuests)
       setRows([...memberRows, ...badmintonRows, ...rentalRows])
     } catch (err) {
       setErrorMsg(err.message || 'Failed to load clients.')
@@ -162,70 +133,20 @@ export default function Clients() {
     URL.revokeObjectURL(url)
   }
 
-  async function openHistory(row) {
-    setHistoryFor(row)
-    setHistoryError('')
-    setHistoryRows([])
-    setSelectedMonth(null)
+  // Opens the full history page in a new tab instead of a small popup —
+  // much nicer for someone with a long list of visits/renewals.
+  function openHistory(row) {
+    let url
 
     if (row.type === 'Member') {
-      setHistoryLoading(true)
-
-      const [{ data: attRows, error: attErr }, { data: rentRows, error: rentErr }] = await Promise.all([
-        supabase
-          .from('attendance')
-          .select('id, activity, attendance_date, check_in_time, court_number')
-          .eq('student_id', row.studentId)
-          .order('check_in_time', { ascending: false }),
-        supabase
-          .from('rentals')
-          .select('id, activity, booking_date, start_time, court_number')
-          .eq('student_id', row.studentId)
-          .order('start_time', { ascending: false }),
-      ])
-
-      setHistoryLoading(false)
-
-      if (attErr || rentErr) {
-        setHistoryError((attErr || rentErr).message)
-        return
-      }
-
-      const combined = [
-        ...(attRows || []).map((r) => ({ key: `a-${r.id}`, activity: r.activity, date: r.attendance_date, time: r.check_in_time, court: r.court_number })),
-        ...(rentRows || []).map((r) => ({ key: `r-${r.id}`, activity: r.activity, date: r.booking_date, time: r.start_time, court: r.court_number })),
-      ].sort((a, b) => new Date(b.time) - new Date(a.time))
-
-      setHistoryRows(combined)
-      return
+      url = `/history?type=member&id=${row.studentId}`
+    } else {
+      const source = row.type === 'Walk-in (Badminton)' ? 'attendance' : 'rentals'
+      const phoneParam = row.phone === '—' ? '' : row.phone
+      url = `/history?type=guest&source=${source}&key=${encodeURIComponent(row.guestKey)}&name=${encodeURIComponent(row.name)}&phone=${encodeURIComponent(phoneParam)}`
     }
 
-    // Walk-in guest — we already fetched every visit up front, just filter
-    // down to whichever ones match this person's grouping key.
-    const source = row.type === 'Walk-in (Badminton)' ? badmintonGuestVisits : rentalGuestVisits
-    const dateField = row.type === 'Walk-in (Badminton)' ? 'attendance_date' : 'booking_date'
-    const timeField = row.type === 'Walk-in (Badminton)' ? 'check_in_time' : 'start_time'
-    const activityLabel = row.type === 'Walk-in (Badminton)' ? 'Badminton' : 'Billiards'
-
-    const matches = source
-      .filter((v) => guestKeyFor(v.guest_phone, v.guest_name) === row.guestKey)
-      .map((v, i) => ({
-        key: `${row.guestKey}-${i}`,
-        activity: activityLabel,
-        date: v[dateField],
-        time: v[timeField],
-        court: v.court_number,
-      }))
-      .sort((a, b) => new Date(b.time || b.date) - new Date(a.time || a.date))
-
-    setHistoryRows(matches)
-  }
-
-  function closeHistory() {
-    setHistoryFor(null)
-    setHistoryRows([])
-    setHistoryError('')
-    setSelectedMonth(null)
+    window.open(url, '_blank', 'noopener,noreferrer')
   }
 
   return (
@@ -323,88 +244,9 @@ export default function Clients() {
 
         <p className="text-xs text-line-dim mt-3">
           Walk-in guests are grouped by phone number across all their visits (or by name if no phone was recorded).
-          Click any row to see exactly which days and times they came.
+          Click any row to open their full history in a new tab.
         </p>
       </div>
-
-      {historyFor && (
-        <div
-          className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-20"
-          onClick={(e) => {
-            if (e.target !== e.currentTarget) return
-            closeHistory()
-          }}
-        >
-          <div className="bg-court-900 border border-court-700 rounded-xl p-6 w-full max-w-sm space-y-4 max-h-[85vh] overflow-y-auto">
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                <h2 className="font-display text-xl">{historyFor.name}</h2>
-                <p className="text-xs text-line-dim">{historyFor.type}{historyFor.phone !== '—' ? ` · ${historyFor.phone}` : ''}</p>
-              </div>
-              <button
-                onClick={closeHistory}
-                className="text-line-dim hover:text-line text-xl leading-none px-1"
-                aria-label="Close"
-              >
-                ×
-              </button>
-            </div>
-
-            {historyError && <p className="text-sm text-danger">{historyError}</p>}
-            {historyLoading && <p className="text-sm text-line-dim">Loading…</p>}
-
-            {!historyLoading && historyRows.length === 0 && !historyError && (
-              <p className="text-sm text-line-dim">No visits on record.</p>
-            )}
-
-            {!historyLoading && historyRows.length > 0 && (
-              <>
-                <div className="flex flex-wrap gap-1.5">
-                  <button
-                    onClick={() => setSelectedMonth(null)}
-                    className={`text-xs px-2.5 py-1 rounded-full font-medium ${
-                      selectedMonth === null ? 'bg-chalk text-court-950' : 'bg-court-800 text-line-dim hover:text-line'
-                    }`}
-                  >
-                    All ({historyRows.length})
-                  </button>
-                  {historyMonths.map((m) => (
-                    <button
-                      key={m.key}
-                      onClick={() => setSelectedMonth(m.key)}
-                      className={`text-xs px-2.5 py-1 rounded-full font-medium ${
-                        selectedMonth === m.key ? 'bg-chalk text-court-950' : 'bg-court-800 text-line-dim hover:text-line'
-                      }`}
-                    >
-                      {m.label} ({m.items.length})
-                    </button>
-                  ))}
-                </div>
-
-                <div className="divide-y divide-court-800 border border-court-700 rounded-lg overflow-hidden">
-                  {visibleHistoryRows.map((row) => (
-                    <div key={row.key} className="px-3 py-2.5">
-                      <p className="text-sm">
-                        {new Date(`${row.date}T00:00:00`).toLocaleDateString('en-AE', {
-                          weekday: 'short',
-                          day: 'numeric',
-                          month: 'short',
-                          year: 'numeric',
-                        })}
-                      </p>
-                      <p className="text-xs text-line-dim">
-                        {row.activity}
-                        {row.court ? ` · Court ${row.court}` : ''}
-                        {row.time ? ` · ${new Date(row.time).toLocaleTimeString('en-AE', { hour: '2-digit', minute: '2-digit' })}` : ''}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
     </Layout>
   )
 }

@@ -1,14 +1,15 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { QRCodeCanvas } from 'qrcode.react'
 import Layout from '../components/Layout'
 import { supabase } from '../lib/supabaseClient'
 import { normalizePhone } from '../lib/phone'
-import { groupVisitsByMonth } from '../lib/monthGroups'
 
 function makeStudentCode() {
   const rand = Math.random().toString(36).slice(2, 7).toUpperCase()
   return `AT-${rand}`
 }
+
+const todayStr = () => new Date().toISOString().slice(0, 10)
 
 const ACTIVITY = 'Badminton'
 
@@ -50,27 +51,6 @@ export default function Students() {
   const [renewSaving, setRenewSaving] = useState(false)
   const [renewError, setRenewError] = useState('')
   const [renewDone, setRenewDone] = useState(false)
-
-  // ---- per-member attendance history (view / edit / delete) ----
-  const [attendanceRows, setAttendanceRows] = useState([])
-  const [attendanceLoading, setAttendanceLoading] = useState(false)
-  const [attendanceError, setAttendanceError] = useState('')
-  const [attEditingId, setAttEditingId] = useState(null)
-  const [attEditDate, setAttEditDate] = useState('')
-  const [attEditTime, setAttEditTime] = useState('')
-  const [attSaving, setAttSaving] = useState(false)
-  const [attDeletingId, setAttDeletingId] = useState(null)
-  const [attSelectedMonth, setAttSelectedMonth] = useState(null)
-
-  const attendanceMonths = useMemo(
-    () => groupVisitsByMonth(attendanceRows, 'attendance_date'),
-    [attendanceRows]
-  )
-  const visibleAttendanceRows = attSelectedMonth
-    ? attendanceMonths.find((m) => m.key === attSelectedMonth)?.items || []
-    : attendanceRows
-  const [quickAddRows, setQuickAddRows] = useState([])
-  const [quickAddSaving, setQuickAddSaving] = useState(false)
 
   useEffect(() => {
     loadStudents()
@@ -190,6 +170,23 @@ export default function Students() {
       }
     }
 
+    // Log the very first package too, not just renewals — otherwise a
+    // member's package history only starts from their first renewal,
+    // which looks incomplete/confusing later.
+    if (pkg) {
+      const { error: historyError } = await supabase.from('package_history').insert({
+        student_id: newStudent.id,
+        package_id: pkg.id,
+        start_date: todayStr(),
+        classes_used: 0,
+        remaining_classes: pkg.total_classes,
+      })
+
+      if (historyError) {
+        console.error('Package history error:', historyError)
+      }
+    }
+
     // Backfill any classes they already attended before being added to the
     // system, so their history and remaining classes are accurate from day one.
     const validPastClasses = pastClasses.filter((r) => r.date)
@@ -258,262 +255,14 @@ export default function Students() {
     setRenewMethod('Cash')
     setRenewError('')
     setRenewDone(false)
-
-    setAttEditingId(null)
-    setAttendanceError('')
-    setQuickAddRows([])
-    setAttSelectedMonth(null)
-    loadAttendanceHistory(student.id)
   }
 
   function closeEditModal() {
     setEditStudent(null)
     setEditForm(null)
     setEditError('')
-    setAttendanceRows([])
-    setAttEditingId(null)
-    setAttendanceError('')
-    setQuickAddRows([])
-    setAttSelectedMonth(null)
   }
 
-  async function loadAttendanceHistory(studentId) {
-    setAttendanceLoading(true)
-    setAttendanceError('')
-
-    const { data, error: loadError } = await supabase
-      .from('attendance')
-      .select('id, activity, attendance_date, check_in_time, checked_in_by')
-      .eq('student_id', studentId)
-      .order('attendance_date', { ascending: false })
-      .order('check_in_time', { ascending: false })
-
-    setAttendanceLoading(false)
-
-    if (loadError) {
-      setAttendanceError(loadError.message)
-      return
-    }
-
-    setAttendanceRows(data || [])
-  }
-
-  function startEditAttendance(row) {
-    setAttEditingId(row.id)
-    setAttEditDate(row.attendance_date)
-    setAttEditTime(new Date(row.check_in_time).toTimeString().slice(0, 5))
-  }
-
-  function cancelEditAttendance() {
-    setAttEditingId(null)
-    setAttEditDate('')
-    setAttEditTime('')
-  }
-
-  async function saveEditAttendance(rowId) {
-    if (!attEditDate || !attEditTime) return
-
-    setAttSaving(true)
-    setAttendanceError('')
-
-    const checkInTimestamp = new Date(`${attEditDate}T${attEditTime}:00`).toISOString()
-
-    const { error: updateError } = await supabase
-      .from('attendance')
-      .update({ attendance_date: attEditDate, check_in_time: checkInTimestamp })
-      .eq('id', rowId)
-
-    setAttSaving(false)
-
-    if (updateError) {
-      setAttendanceError(updateError.message)
-      return
-    }
-
-    setAttEditingId(null)
-    await loadAttendanceHistory(editStudent.id)
-  }
-
-  async function deleteAttendance(row) {
-    if (attDeletingId) return
-
-    const confirmed = window.confirm(
-      `Remove this ${row.activity} check-in from ${new Date(row.attendance_date).toLocaleDateString('en-AE')}?\n\n` +
-        'Use this only if it was added by mistake. This cannot be undone.'
-    )
-
-    if (!confirmed) return
-
-    setAttDeletingId(row.id)
-    setAttendanceError('')
-
-    const { error: deleteError } = await supabase
-      .from('attendance')
-      .delete()
-      .eq('id', row.id)
-
-    if (deleteError) {
-      setAttDeletingId(null)
-      setAttendanceError(deleteError.message)
-      return
-    }
-
-    // Give the class back, since this visit no longer counts — mirrors
-    // the deduction that happens on a normal check-in. Uses the live
-    // editForm numbers (not the original editStudent snapshot) so this
-    // stays correct even after multiple edits in the same session.
-    if (editStudent.packages && !editStudent.packages.is_unlimited) {
-      const restoredRemaining = (editForm?.remaining_classes ?? 0) + 1
-      const restoredUsed = Math.max(0, (editForm?.classes_used ?? 0) - 1)
-
-      await supabase.from('students').update({
-        remaining_classes: restoredRemaining,
-        classes_used: restoredUsed,
-      }).eq('id', editStudent.id)
-
-      setEditForm((prev) => prev && { ...prev, remaining_classes: restoredRemaining, classes_used: restoredUsed })
-    }
-
-    setAttDeletingId(null)
-    await loadAttendanceHistory(editStudent.id)
-    await loadStudents()
-  }
-
-  function addQuickAddRow() {
-    setQuickAddRows([...quickAddRows, makePastClassRow()])
-  }
-
-  function updateQuickAddRow(id, field, value) {
-    setQuickAddRows(quickAddRows.map((r) => (r.id === id ? { ...r, [field]: value } : r)))
-  }
-
-  function removeQuickAddRow(id) {
-    setQuickAddRows(quickAddRows.filter((r) => r.id !== id))
-  }
-
-  async function saveQuickAddClasses() {
-    const validRows = quickAddRows.filter((r) => r.date)
-    if (validRows.length === 0 || quickAddSaving) return
-
-    setQuickAddSaving(true)
-    setAttendanceError('')
-
-    const attendanceInserts = validRows.map((r) => ({
-      student_id: editStudent.id,
-      activity: ACTIVITY,
-      attendance_date: r.date,
-      check_in_time: new Date(`${r.date}T${r.time || '12:00'}:00`).toISOString(),
-      checked_in_by: 'Backfilled (added after enrollment)',
-    }))
-
-    const { error: insertError } = await supabase.from('attendance').insert(attendanceInserts)
-
-    if (insertError) {
-      setQuickAddSaving(false)
-      setAttendanceError(insertError.message)
-      return
-    }
-
-    if (editStudent.packages && !editStudent.packages.is_unlimited) {
-      const newRemaining = Math.max(0, (editForm?.remaining_classes ?? 0) - validRows.length)
-      const newUsed = (editForm?.classes_used ?? 0) + validRows.length
-
-      const { error: updateError } = await supabase
-        .from('students')
-        .update({ remaining_classes: newRemaining, classes_used: newUsed })
-        .eq('id', editStudent.id)
-
-      if (updateError) {
-        setQuickAddSaving(false)
-        setAttendanceError(`Classes were logged, but the remaining count couldn't be updated: ${updateError.message}`)
-        setQuickAddRows([])
-        await loadAttendanceHistory(editStudent.id)
-        return
-      }
-
-      setEditForm((prev) => prev && { ...prev, remaining_classes: newRemaining, classes_used: newUsed })
-    }
-
-    setQuickAddSaving(false)
-    setQuickAddRows([])
-    await loadAttendanceHistory(editStudent.id)
-    await loadStudents()
-  }
-
-  function handleRenewPackageChange(packageId) {
-    setRenewPackageId(packageId)
-
-    const pkg = packages.find((p) => p.id === packageId)
-
-    setRenewAmount(pkg ? String(pkg.price) : '')
-  }
-
-  async function handleRenew(e) {
-    e.preventDefault()
-    setRenewError('')
-
-    if (!renewPackageId) {
-      setRenewError('Pick a package to renew with.')
-      return
-    }
-
-    const pkg = packages.find((p) => p.id === renewPackageId)
-
-    if (!pkg) {
-      setRenewError('Package not found.')
-      return
-    }
-
-    setRenewSaving(true)
-
-    const { error: paymentError } = await supabase.from('payments').insert({
-      student_id: editStudent.id,
-      package_id: pkg.id,
-      amount: renewAmount !== '' ? Number(renewAmount) : pkg.price,
-      payment_method: renewMethod,
-    })
-
-    if (paymentError) {
-      setRenewSaving(false)
-      setRenewError(paymentError.message)
-      return
-    }
-
-    const { error: historyError } = await supabase
-      .from('package_history')
-      .insert({
-        student_id: editStudent.id,
-        package_id: pkg.id,
-        start_date: new Date().toISOString().slice(0, 10),
-        classes_used: 0,
-        remaining_classes: pkg.total_classes,
-      })
-
-    if (historyError) {
-      console.error('Package history error:', historyError)
-    }
-
-    const { error: updateError } = await supabase
-      .from('students')
-      .update({
-        package_id: pkg.id,
-        remaining_classes: pkg.total_classes,
-        classes_used: 0,
-        status: 'Active',
-      })
-      .eq('id', editStudent.id)
-
-    setRenewSaving(false)
-
-    if (updateError) {
-      setRenewError(updateError.message)
-      return
-    }
-
-    setRenewDone(true)
-
-    await loadStudents()
-  }
 
   async function handleEditSave(e) {
     e.preventDefault()
@@ -897,49 +646,6 @@ export default function Students() {
               )}
             </div>
 
-            {duplicateWarning && duplicateWarning !== 'ignored' && (
-              <div className="bg-chalk/10 border border-chalk/40 rounded-lg p-3 space-y-2">
-                <p className="text-sm">
-                  {duplicateWarning.reason === 'phone' ? (
-                    <>
-                      This phone number is already registered to{' '}
-                      <strong>{duplicateWarning.match.full_name}</strong>{' '}
-                      ({duplicateWarning.match.status}).
-                    </>
-                  ) : (
-                    <>
-                      A member named <strong>{duplicateWarning.match.full_name}</strong>{' '}
-                      already exists with a different phone number — just checking
-                      this isn't the same person entered twice.
-                    </>
-                  )}
-                </p>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const match = duplicateWarning.match
-                      setShowForm(false)
-                      setForm(emptyForm)
-                      setPastClasses([])
-                      setDuplicateWarning(null)
-                      openEdit(match)
-                    }}
-                    className="flex-1 bg-chalk hover:bg-chalk-bright text-court-950 font-semibold rounded-md py-2 text-xs"
-                  >
-                    Open {duplicateWarning.match.full_name} to renew
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setDuplicateWarning('ignored')}
-                    className="flex-1 border border-court-600 rounded-md py-2 text-xs text-line-dim hover:bg-court-800"
-                  >
-                    No, create as new member
-                  </button>
-                </div>
-              </div>
-            )}
-
             {error && (
               <p className="text-sm text-danger">
                 {error}
@@ -1145,199 +851,25 @@ export default function Students() {
               </div>
             </form>
 
-            {/* ATTENDANCE HISTORY */}
+            {/* HISTORY LINK */}
 
             <div className="border-t border-court-700 pt-4">
-              <h3 className="font-display text-base mb-1">
-                ATTENDANCE HISTORY
-              </h3>
-
-              <p className="text-xs text-line-dim mb-3">
-                Every day this member checked in. Edit the date/time to fix a
-                mistake, or remove a record that was added in error — it
-                updates instantly on the parent's side too.
-              </p>
-
-              <div className="bg-court-800/60 border border-court-700 rounded-lg p-3 mb-4">
-                <p className="text-xs text-line-dim mb-2">
-                  Add classes they already attended (e.g. before being added
-                  to the system) — no need to redo their enrollment.
-                </p>
-
-                {quickAddRows.length > 0 && (
-                  <div className="space-y-2 mb-2">
-                    {quickAddRows.map((row) => (
-                      <div key={row.id} className="flex gap-2 items-center">
-                        <input
-                          type="date"
-                          required
-                          max={new Date().toISOString().slice(0, 10)}
-                          value={row.date}
-                          onChange={(e) => updateQuickAddRow(row.id, 'date', e.target.value)}
-                          className="flex-1 bg-court-800 border border-court-600 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-chalk"
-                        />
-                        <input
-                          type="time"
-                          value={row.time}
-                          onChange={(e) => updateQuickAddRow(row.id, 'time', e.target.value)}
-                          className="w-24 bg-court-800 border border-court-600 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-chalk"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => removeQuickAddRow(row.id)}
-                          className="text-line-dim hover:text-danger text-lg leading-none px-1"
-                          aria-label="Remove this class"
-                        >
-                          ×
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                <div className="flex items-center justify-between gap-2">
-                  <button
-                    type="button"
-                    onClick={addQuickAddRow}
-                    className="text-xs text-chalk hover:text-chalk-bright font-medium"
-                  >
-                    + Add a class
-                  </button>
-
-                  {quickAddRows.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={saveQuickAddClasses}
-                      disabled={quickAddSaving || quickAddRows.filter((r) => r.date).length === 0}
-                      className="bg-chalk hover:bg-chalk-bright text-court-950 font-semibold rounded-md px-3 py-1.5 text-xs disabled:opacity-60"
-                    >
-                      {quickAddSaving
-                        ? 'Saving…'
-                        : `Save ${quickAddRows.filter((r) => r.date).length || ''} class${quickAddRows.filter((r) => r.date).length === 1 ? '' : 'es'}`}
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {attendanceError && (
-                <p className="text-sm text-danger mb-2">{attendanceError}</p>
-              )}
-
-              {attendanceLoading && (
-                <p className="text-sm text-line-dim">Loading…</p>
-              )}
-
-              {!attendanceLoading && attendanceRows.length === 0 && (
-                <p className="text-sm text-line-dim">No check-ins recorded yet.</p>
-              )}
-
-              {!attendanceLoading && attendanceRows.length > 0 && (
-                <>
-                  <div className="flex flex-wrap gap-1.5 mb-2">
-                    <button
-                      type="button"
-                      onClick={() => setAttSelectedMonth(null)}
-                      className={`text-xs px-2.5 py-1 rounded-full font-medium ${
-                        attSelectedMonth === null ? 'bg-chalk text-court-950' : 'bg-court-800 text-line-dim hover:text-line'
-                      }`}
-                    >
-                      All ({attendanceRows.length})
-                    </button>
-                    {attendanceMonths.map((m) => (
-                      <button
-                        type="button"
-                        key={m.key}
-                        onClick={() => setAttSelectedMonth(m.key)}
-                        className={`text-xs px-2.5 py-1 rounded-full font-medium ${
-                          attSelectedMonth === m.key ? 'bg-chalk text-court-950' : 'bg-court-800 text-line-dim hover:text-line'
-                        }`}
-                      >
-                        {m.label} ({m.items.length})
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="divide-y divide-court-800 max-h-64 overflow-y-auto border border-court-700 rounded-lg">
-                    {visibleAttendanceRows.map((row) => (
-                    <div key={row.id} className="px-3 py-2.5">
-                      {attEditingId === row.id ? (
-                        <div className="space-y-2">
-                          <div className="grid grid-cols-2 gap-2">
-                            <input
-                              type="date"
-                              value={attEditDate}
-                              max={new Date().toISOString().slice(0, 10)}
-                              onChange={(e) => setAttEditDate(e.target.value)}
-                              className="w-full bg-court-800 border border-court-600 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-chalk"
-                            />
-                            <input
-                              type="time"
-                              value={attEditTime}
-                              onChange={(e) => setAttEditTime(e.target.value)}
-                              className="w-full bg-court-800 border border-court-600 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-chalk"
-                            />
-                          </div>
-                          <div className="flex gap-2">
-                            <button
-                              type="button"
-                              onClick={cancelEditAttendance}
-                              disabled={attSaving}
-                              className="flex-1 border border-court-600 rounded-md py-1.5 text-xs text-line-dim hover:bg-court-800 disabled:opacity-60"
-                            >
-                              Cancel
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => saveEditAttendance(row.id)}
-                              disabled={attSaving}
-                              className="flex-1 bg-chalk hover:bg-chalk-bright text-court-950 font-semibold rounded-md py-1.5 text-xs disabled:opacity-60"
-                            >
-                              {attSaving ? 'Saving…' : 'Save'}
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="flex items-center justify-between gap-2">
-                          <div>
-                            <p className="text-sm">
-                              {new Date(`${row.attendance_date}T00:00:00`).toLocaleDateString('en-AE', {
-                                weekday: 'short',
-                                day: 'numeric',
-                                month: 'short',
-                                year: 'numeric',
-                              })}
-                            </p>
-                            <p className="text-xs text-line-dim">
-                              {row.activity} · {new Date(row.check_in_time).toLocaleTimeString('en-AE', { hour: '2-digit', minute: '2-digit' })}
-                              {row.checked_in_by ? ` · ${row.checked_in_by}` : ''}
-                            </p>
-                          </div>
-                          <div className="flex gap-1 shrink-0">
-                            <button
-                              type="button"
-                              onClick={() => startEditAttendance(row)}
-                              disabled={attDeletingId === row.id}
-                              className="text-xs text-chalk hover:text-chalk-bright font-medium px-2 py-1 disabled:opacity-60"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => deleteAttendance(row)}
-                              disabled={attDeletingId === row.id}
-                              className="text-xs text-danger hover:text-danger/80 font-medium px-2 py-1 disabled:opacity-60"
-                            >
-                              {attDeletingId === row.id ? 'Removing…' : 'Remove'}
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                  </div>
-                </>
-              )}
+              <a
+                href={`/history?type=member&id=${editStudent.id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full flex items-center justify-between bg-court-800 hover:bg-court-700 rounded-lg px-4 py-3 text-sm transition-colors"
+              >
+                <span>
+                  <span className="font-medium">View full attendance &amp; package history</span>
+                  <span className="block text-xs text-line-dim mt-0.5">
+                    Opens in a new tab — every session and renewal, grouped by month
+                  </span>
+                </span>
+                <span className="text-line-dim">&rarr;</span>
+              </a>
             </div>
+
 
             {/* DELETE MEMBER */}
 
@@ -1508,10 +1040,68 @@ export default function Students() {
               </button>
 
               <button
-                onClick={() => shareQROnWhatsApp(qrStudent)}
+                onClick={() => shareParentPortalOnWhatsApp(qrStudent)}
                 className="flex-1 bg-[#25D366] hover:bg-[#20BD5A] text-white font-semibold rounded-md py-2 text-sm"
               >
-                WhatsApp
+                Invite to Parent Portal
+              </button>
+            </div>
+
+            <p className="text-[11px] text-line-dim">
+              "Copy QR" is for your own records (e.g. printing a card) — the
+              WhatsApp button instead sends the parent a link to check
+              attendance themselves, using their registered number.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* DUPLICATE MEMBER POPUP */}
+
+      {duplicateWarning && duplicateWarning !== 'ignored' && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-30">
+          <div className="bg-court-900 border border-chalk/40 rounded-xl p-6 w-full max-w-sm space-y-4">
+            <h2 className="font-display text-xl">
+              {duplicateWarning.reason === 'phone' ? 'Already registered' : 'Possible duplicate'}
+            </h2>
+
+            <p className="text-sm text-line-dim">
+              {duplicateWarning.reason === 'phone' ? (
+                <>
+                  This phone number is already registered to{' '}
+                  <strong className="text-line">{duplicateWarning.match.full_name}</strong>{' '}
+                  ({duplicateWarning.match.status}).
+                </>
+              ) : (
+                <>
+                  A member named <strong className="text-line">{duplicateWarning.match.full_name}</strong>{' '}
+                  already exists with a different phone number — just checking
+                  this isn't the same person entered twice.
+                </>
+              )}
+            </p>
+
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const match = duplicateWarning.match
+                  setShowForm(false)
+                  setForm(emptyForm)
+                  setPastClasses([])
+                  setDuplicateWarning(null)
+                  openEdit(match)
+                }}
+                className="w-full bg-chalk hover:bg-chalk-bright text-court-950 font-semibold rounded-md py-2.5 text-sm"
+              >
+                Open {duplicateWarning.match.full_name} to renew
+              </button>
+              <button
+                type="button"
+                onClick={() => setDuplicateWarning('ignored')}
+                className="w-full border border-court-600 rounded-md py-2.5 text-sm text-line-dim hover:bg-court-800"
+              >
+                No, create as a new member
               </button>
             </div>
           </div>
@@ -1578,41 +1168,32 @@ async function copyQRToClipboard(student) {
 }
 
 /* =========================================================
-   WHATSAPP
+   WHATSAPP — PARENT PORTAL INVITE
    ========================================================= */
 
-async function shareQROnWhatsApp(student) {
+function buildParentPortalMessage(student) {
+  const portalUrl = `${window.location.origin}/parent`
+  return `Hi! You can now check ${student.full_name}'s badminton attendance anytime — just visit ${portalUrl} and enter your registered phone number to view their session history and remaining classes. Thank you! — Al Hayatt Badminton & Billiards Club`
+}
+
+function shareParentPortalOnWhatsApp(student) {
   const phone = normalizePhone(student.phone)
 
   if (!phone) {
     window.alert(
       'This member does not have a valid phone number saved.'
     )
-
     return
   }
 
-  // Copy the QR image first.
-  const copied = await copyQRToClipboard(student)
-
-  if (!copied) {
-    return
-  }
-
-  // Open the member's WhatsApp chat.
-  const whatsappUrl = `https://wa.me/${phone}`
+  const message = buildParentPortalMessage(student)
+  const whatsappUrl = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`
 
   window.open(
     whatsappUrl,
     '_blank',
     'noopener,noreferrer'
   )
-
-  window.setTimeout(() => {
-    window.alert(
-      'QR code copied to your clipboard. Open the WhatsApp chat and paste the QR image.'
-    )
-  }, 500)
 }
 
 /* =========================================================

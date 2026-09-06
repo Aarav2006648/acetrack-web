@@ -21,3 +21,13 @@ export function normalizePhone(phone) {
 
   return digits
 }
+
+// A guest's key for grouping repeat visits into one person: their
+// normalized phone when they gave one, falling back to their name if
+// not. Shared by the All Clients directory and the per-person history
+// page so both agree on how a walk-in's visits get grouped.
+export function guestKeyFor(guestPhone, guestName) {
+  const normalized = normalizePhone(guestPhone)
+  if (normalized) return `phone:${normalized}`
+  return `name:${(guestName || 'Unknown guest').trim().toLowerCase()}`
+}
