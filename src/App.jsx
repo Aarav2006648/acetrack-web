@@ -7,6 +7,7 @@ import CheckIn from './pages/CheckIn'
 import Reports from './pages/Reports'
 import Rentals from './pages/Rentals'
 import Announcements from './pages/Announcements'
+import HistoryPage from './pages/HistoryPage'
 import ParentPortal from './pages/ParentPortal'
 import ProtectedRoute from './components/ProtectedRoute'
 
@@ -22,6 +23,7 @@ export default function App() {
       <Route path="/rentals" element={<ProtectedRoute><Rentals /></ProtectedRoute>} />
       <Route path="/announcements" element={<ProtectedRoute><Announcements /></ProtectedRoute>} />
       <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
+      <Route path="/history" element={<ProtectedRoute><HistoryPage /></ProtectedRoute>} />
     </Routes>
   )
 }
