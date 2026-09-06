@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { QRCodeCanvas } from 'qrcode.react'
 import Layout from '../components/Layout'
 import { supabase } from '../lib/supabaseClient'
@@ -52,10 +53,28 @@ export default function Students() {
   const [renewError, setRenewError] = useState('')
   const [renewDone, setRenewDone] = useState(false)
 
+  const [searchParams, setSearchParams] = useSearchParams()
+
   useEffect(() => {
     loadStudents()
     loadPackages()
   }, [])
+
+  // Lets other pages (All Clients, the history page) deep-link straight
+  // into editing a member via /students?edit=<id>, instead of making
+  // staff search for them again. Clears the param once used so closing
+  // and reopening the modal manually doesn't get stuck reopening this one.
+  useEffect(() => {
+    const editId = searchParams.get('edit')
+    if (!editId || students.length === 0) return
+
+    const match = students.find((s) => s.id === editId)
+    if (match) {
+      openEdit(match)
+      setSearchParams({}, { replace: true })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, students])
 
   async function loadStudents() {
     const { data, error: loadError } = await supabase
@@ -263,6 +282,79 @@ export default function Students() {
     setEditError('')
   }
 
+  function handleRenewPackageChange(packageId) {
+    const pkg = packages.find((p) => p.id === packageId)
+
+    setRenewPackageId(packageId)
+    setRenewAmount(pkg ? pkg.price : '')
+  }
+
+  async function handleRenew(e) {
+    e.preventDefault()
+    setRenewError('')
+
+    if (!renewPackageId) {
+      setRenewError('Pick a package to renew with.')
+      return
+    }
+
+    const pkg = packages.find((p) => p.id === renewPackageId)
+
+    if (!pkg) {
+      setRenewError('Package not found.')
+      return
+    }
+
+    setRenewSaving(true)
+
+    const { error: paymentError } = await supabase.from('payments').insert({
+      student_id: editStudent.id,
+      package_id: pkg.id,
+      amount: renewAmount !== '' ? Number(renewAmount) : pkg.price,
+      payment_method: renewMethod,
+    })
+
+    if (paymentError) {
+      setRenewSaving(false)
+      setRenewError(paymentError.message)
+      return
+    }
+
+    const { error: historyError } = await supabase
+      .from('package_history')
+      .insert({
+        student_id: editStudent.id,
+        package_id: pkg.id,
+        start_date: todayStr(),
+        classes_used: 0,
+        remaining_classes: pkg.total_classes,
+      })
+
+    if (historyError) {
+      console.error('Package history error:', historyError)
+    }
+
+    const { error: updateError } = await supabase
+      .from('students')
+      .update({
+        package_id: pkg.id,
+        remaining_classes: pkg.total_classes,
+        classes_used: 0,
+        status: 'Active',
+      })
+      .eq('id', editStudent.id)
+
+    setRenewSaving(false)
+
+    if (updateError) {
+      setRenewError(updateError.message)
+      return
+    }
+
+    setRenewDone(true)
+
+    await loadStudents()
+  }
 
   async function handleEditSave(e) {
     e.preventDefault()

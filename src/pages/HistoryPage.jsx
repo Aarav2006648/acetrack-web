@@ -274,8 +274,20 @@ function MemberHistory({ studentId }) {
   return (
     <>
       <header className="mt-4 mb-6">
-        <h1 className="font-display text-3xl">{student.full_name}</h1>
-        <p className="text-line-dim text-sm mt-1 font-mono">{student.student_code} · {student.status}</p>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h1 className="font-display text-3xl">{student.full_name}</h1>
+            <p className="text-line-dim text-sm mt-1 font-mono">{student.student_code} · {student.status}</p>
+          </div>
+          <a
+            href={`/students?edit=${student.id}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="shrink-0 text-xs bg-court-800 hover:bg-court-700 px-3 py-1.5 rounded-md font-medium transition-colors"
+          >
+            Edit member details
+          </a>
+        </div>
         <div className="grid grid-cols-2 gap-3 mt-4 max-w-sm">
           <div className="bg-court-900 border border-court-700 rounded-lg p-3">
             <p className="text-xs text-line-dim uppercase">Classes done</p>

@@ -201,6 +201,7 @@ export default function Clients() {
                 <th className="px-5 py-3 font-medium">Type</th>
                 <th className="px-5 py-3 font-medium">Detail</th>
                 <th className="px-5 py-3 font-medium">Last seen / Since</th>
+                <th className="px-5 py-3 font-medium"></th>
               </tr>
             </thead>
 
@@ -220,12 +221,25 @@ export default function Clients() {
                   <td className="px-5 py-3 text-line-dim">
                     {r.since ? new Date(r.since).toLocaleDateString('en-AE') : '—'}
                   </td>
+                  <td className="px-5 py-3 text-right">
+                    {r.type === 'Member' && (
+                      <a
+                        href={`/students?edit=${r.studentId}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-xs text-chalk hover:text-chalk-bright font-medium"
+                      >
+                        Edit
+                      </a>
+                    )}
+                  </td>
                 </tr>
               ))}
 
               {loading && (
                 <tr>
-                  <td colSpan={5} className="px-5 py-8 text-center text-line-dim text-sm">
+                  <td colSpan={6} className="px-5 py-8 text-center text-line-dim text-sm">
                     Loading everyone…
                   </td>
                 </tr>
@@ -233,7 +247,7 @@ export default function Clients() {
 
               {!loading && filtered.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-5 py-8 text-center text-line-dim text-sm">
+                  <td colSpan={6} className="px-5 py-8 text-center text-line-dim text-sm">
                     No clients match your search/filter.
                   </td>
                 </tr>
