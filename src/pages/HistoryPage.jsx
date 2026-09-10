@@ -389,6 +389,23 @@ function MemberHistory({ studentId }) {
               </button>
             )}
           </div>
+
+          {quickAddRows.filter((r) => r.date).length > 0 && (
+            <p className="text-[11px] text-line-dim mt-2">
+              {student?.packages?.is_unlimited ? (
+                <>Package is unlimited, so remaining classes won't be affected.</>
+              ) : (
+                <>
+                  Currently <strong className="text-line">{student?.remaining_classes ?? 0}</strong> remaining —
+                  after saving, they'll have{' '}
+                  <strong className="text-line">
+                    {Math.max(0, (student?.remaining_classes ?? 0) - quickAddRows.filter((r) => r.date).length)}
+                  </strong>{' '}
+                  left.
+                </>
+              )}
+            </p>
+          )}
         </div>
 
         {attendanceError && <p className="text-sm text-danger mb-2">{attendanceError}</p>}

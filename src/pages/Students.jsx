@@ -155,6 +155,16 @@ export default function Students() {
 
     const pkg = packages.find((p) => p.id === form.package_id)
 
+    // Compute this up front so the very first insert already has the
+    // right numbers — no separate "oops, patch it after" update needed,
+    // and the package_history log matches the student's actual starting
+    // point instead of always assuming a fresh, unused package.
+    const validPastClasses = pastClasses.filter((r) => r.date)
+    const startingUsed = pkg && !pkg.is_unlimited ? validPastClasses.length : 0
+    const startingRemaining = pkg
+      ? (pkg.is_unlimited ? 0 : Math.max(0, pkg.total_classes - validPastClasses.length))
+      : 0
+
     const { data: newStudent, error: studentError } = await supabase
       .from('students')
       .insert({
@@ -163,7 +173,8 @@ export default function Students() {
         phone: form.phone,
         email: form.email || null,
         package_id: form.package_id || null,
-        remaining_classes: pkg ? pkg.total_classes : 0,
+        remaining_classes: startingRemaining,
+        classes_used: startingUsed,
       })
       .select()
       .single()
@@ -191,14 +202,16 @@ export default function Students() {
 
     // Log the very first package too, not just renewals — otherwise a
     // member's package history only starts from their first renewal,
-    // which looks incomplete/confusing later.
+    // which looks incomplete/confusing later. Uses the same starting
+    // numbers as the student record above, so anyone checking this
+    // history later sees consistent figures either way.
     if (pkg) {
       const { error: historyError } = await supabase.from('package_history').insert({
         student_id: newStudent.id,
         package_id: pkg.id,
         start_date: todayStr(),
-        classes_used: 0,
-        remaining_classes: pkg.total_classes,
+        classes_used: startingUsed,
+        remaining_classes: pkg.is_unlimited ? pkg.total_classes : startingRemaining,
       })
 
       if (historyError) {
@@ -207,9 +220,9 @@ export default function Students() {
     }
 
     // Backfill any classes they already attended before being added to the
-    // system, so their history and remaining classes are accurate from day one.
-    const validPastClasses = pastClasses.filter((r) => r.date)
-
+    // system, so their attendance history is accurate from day one. The
+    // remaining/used counts above already account for these — this just
+    // logs the actual visit records to match.
     if (validPastClasses.length > 0) {
       const attendanceInserts = validPastClasses.map((r) => ({
         student_id: newStudent.id,
@@ -225,21 +238,6 @@ export default function Students() {
         setSaving(false)
         setError(`Member saved, but past classes could not be logged: ${attendanceError.message}`)
         return
-      }
-
-      if (pkg && !pkg.is_unlimited) {
-        const newRemaining = Math.max(0, pkg.total_classes - validPastClasses.length)
-
-        const { error: classCountError } = await supabase
-          .from('students')
-          .update({ remaining_classes: newRemaining, classes_used: validPastClasses.length })
-          .eq('id', newStudent.id)
-
-        if (classCountError) {
-          setSaving(false)
-          setError(`Member and past classes saved, but class count could not be updated: ${classCountError.message}`)
-          return
-        }
       }
     }
 
@@ -729,13 +727,25 @@ export default function Students() {
                 + Add a class they already attended
               </button>
 
-              {pastClasses.length > 0 && (
-                <p className="text-[11px] text-line-dim mt-2">
-                  {pastClasses.filter((r) => r.date).length} class
-                  {pastClasses.filter((r) => r.date).length === 1 ? '' : 'es'} will
-                  be deducted from their new package right away.
-                </p>
-              )}
+              {pastClasses.length > 0 && (() => {
+                const validCount = pastClasses.filter((r) => r.date).length
+                const selectedPkg = packages.find((p) => p.id === form.package_id)
+
+                return (
+                  <p className="text-[11px] text-line-dim mt-2">
+                    {validCount} class{validCount === 1 ? '' : 'es'} already done.
+                    {selectedPkg && !selectedPkg.is_unlimited && (
+                      <> They'll start with <strong className="text-line">{Math.max(0, selectedPkg.total_classes - validCount)}</strong> of {selectedPkg.total_classes} classes remaining.</>
+                    )}
+                    {selectedPkg && selectedPkg.is_unlimited && (
+                      <> Package is unlimited, so remaining classes won't be affected.</>
+                    )}
+                    {!selectedPkg && (
+                      <> Pick a package above to see how many classes they'll have left.</>
+                    )}
+                  </p>
+                )
+              })()}
             </div>
 
             {error && (
