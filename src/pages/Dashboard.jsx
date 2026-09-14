@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import Layout from '../components/Layout'
 import { supabase } from '../lib/supabaseClient'
 
@@ -94,7 +95,7 @@ export default function Dashboard() {
           <p className="text-line-dim text-sm mt-1">Today, {new Date().toLocaleDateString('en-AE', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
         </header>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-3">
           {cards.map((c) => (
             <div key={c.label} className="bg-court-900 border border-court-700 rounded-xl p-5">
               <p className="text-xs text-line-dim uppercase tracking-wide">{c.label}</p>
@@ -103,6 +104,13 @@ export default function Dashboard() {
             </div>
           ))}
         </div>
+        <p className="text-xs text-line-dim mb-10">
+          Revenue this month is calculated live from this month's payments — it isn't stored, so it rolls over
+          to AED 0 automatically the moment the 1st of the month begins. Looking for a previous month?{' '}
+          <Link to="/reports" className="text-chalk hover:text-chalk-bright underline underline-offset-2">
+            Jump to Reports and pick a date range →
+          </Link>
+        </p>
 
         <div className="bg-court-900 border border-court-700 rounded-xl overflow-hidden">
           <div className="px-5 py-4 border-b border-court-700">

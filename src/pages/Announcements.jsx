@@ -301,12 +301,22 @@ export default function Announcements() {
                       </p>
                     </div>
                     {phone ? (
-                      <a
-                        href={`tel:${phone}`}
-                        className="text-xs bg-danger/15 hover:bg-danger/25 text-danger px-3 py-1.5 rounded-md font-medium transition-colors shrink-0"
-                      >
-                        Call {s.phone}
-                      </a>
+                      <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
+                        <a
+                          href={`tel:${phone}`}
+                          className="text-xs bg-danger/15 hover:bg-danger/25 text-danger px-3 py-1.5 rounded-md font-medium transition-colors"
+                        >
+                          Call {s.phone}
+                        </a>
+                        <a
+                          href={`https://wa.me/${phone}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs bg-net/15 hover:bg-net/25 text-net px-3 py-1.5 rounded-md font-medium transition-colors"
+                        >
+                          WhatsApp
+                        </a>
+                      </div>
                     ) : (
                       <span className="text-xs text-line-dim shrink-0">No phone on file</span>
                     )}

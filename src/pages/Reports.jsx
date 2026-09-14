@@ -6,6 +6,25 @@ import { supabase } from '../lib/supabaseClient'
 function firstOfMonth() { const d = new Date(); d.setDate(1); return d.toISOString().slice(0, 10) }
 function today() { return new Date().toISOString().slice(0, 10) }
 
+// First/last day of the calendar month `offset` months back (0 = this month,
+// 1 = last month, etc.) — powers the "quick jump" month buttons below.
+function monthRange(offset) {
+  const d = new Date()
+  d.setDate(1)
+  d.setMonth(d.getMonth() - offset)
+  const from = d.toISOString().slice(0, 10)
+  const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0)
+  const to = lastDay.toISOString().slice(0, 10)
+  return { from, to }
+}
+
+function monthLabel(offset) {
+  const d = new Date()
+  d.setDate(1)
+  d.setMonth(d.getMonth() - offset)
+  return d.toLocaleDateString('en-AE', { month: 'short', year: 'numeric' })
+}
+
 export default function Reports() {
   const [from, setFrom] = useState(firstOfMonth())
   const [to, setTo] = useState(today())
@@ -15,19 +34,22 @@ export default function Reports() {
   const [loading, setLoading] = useState(false)
   const [ran, setRan] = useState(false)
 
-  async function runReport() {
+  // Accepts an explicit range so the quick month-jump buttons can run a
+  // report immediately after setting the dates, without waiting on a
+  // state update — the manual "Run report" button just uses the inputs.
+  async function runReport(fromDate = from, toDate = to) {
     setLoading(true)
 
     const [{ data: attendance }, { data: rentals }, { data: payments }] = await Promise.all([
       supabase.from('attendance')
         .select('id, activity, attendance_date, check_in_time, guest_name, guest_phone, amount, payment_status, students(full_name, phone, student_code)')
-        .gte('attendance_date', from).lte('attendance_date', to).order('check_in_time', { ascending: false }),
+        .gte('attendance_date', fromDate).lte('attendance_date', toDate).order('check_in_time', { ascending: false }),
       supabase.from('rentals')
         .select('id, court_number, duration, price, payment_status, booking_date, start_time, guest_name, guest_phone, students(full_name, phone)')
-        .gte('booking_date', from).lte('booking_date', to).order('start_time', { ascending: false }),
+        .gte('booking_date', fromDate).lte('booking_date', toDate).order('start_time', { ascending: false }),
       supabase.from('payments')
         .select('id, amount, payment_method, payment_status, payment_date, students(full_name, phone), packages(package_name)')
-        .gte('payment_date', from).lte('payment_date', to + 'T23:59:59').order('payment_date', { ascending: false }),
+        .gte('payment_date', fromDate).lte('payment_date', toDate + 'T23:59:59').order('payment_date', { ascending: false }),
     ])
 
     setAttendanceRows(attendance || [])
@@ -35,6 +57,13 @@ export default function Reports() {
     setPaymentRows(payments || [])
     setLoading(false)
     setRan(true)
+  }
+
+  function selectMonth(offset) {
+    const { from: f, to: t } = monthRange(offset)
+    setFrom(f)
+    setTo(t)
+    runReport(f, t)
   }
 
   function nameFor(row) { return row.students?.full_name || row.guest_name || 'Unknown' }
@@ -117,9 +146,23 @@ export default function Reports() {
             <label className="block text-xs text-line-dim mb-1.5">To</label>
             <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="bg-court-900 border border-court-700 rounded-md px-3 py-2 text-sm" />
           </div>
-          <button onClick={runReport} disabled={loading} className="bg-chalk hover:bg-chalk-bright text-court-950 font-semibold px-4 py-2 rounded-md text-sm disabled:opacity-60">
+          <button onClick={() => runReport()} disabled={loading} className="bg-chalk hover:bg-chalk-bright text-court-950 font-semibold px-4 py-2 rounded-md text-sm disabled:opacity-60">
             {loading ? 'Running…' : 'Run report'}
           </button>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 mb-8 -mt-4">
+          <span className="text-xs text-line-dim mr-1">Quick jump:</span>
+          {[0, 1, 2, 3, 4, 5].map((offset) => (
+            <button
+              key={offset}
+              onClick={() => selectMonth(offset)}
+              disabled={loading}
+              className="text-xs border border-court-600 px-3 py-1.5 rounded-md text-line-dim hover:text-line hover:bg-court-800 disabled:opacity-60"
+            >
+              {offset === 0 ? 'This month' : offset === 1 ? 'Last month' : monthLabel(offset)}
+            </button>
+          ))}
         </div>
 
         {ran && (
