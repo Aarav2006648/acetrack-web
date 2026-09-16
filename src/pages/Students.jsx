@@ -37,6 +37,8 @@ export default function Students() {
   const [form, setForm] = useState(emptyForm)
   const [pastClasses, setPastClasses] = useState([])
   const [duplicateWarning, setDuplicateWarning] = useState(null)
+  const [customPackageMode, setCustomPackageMode] = useState(false)
+  const [customPackage, setCustomPackage] = useState({ package_name: '', total_classes: '', price: '', is_unlimited: false })
   const [qrStudent, setQrStudent] = useState(null)
   const [editStudent, setEditStudent] = useState(null)
   const [editForm, setEditForm] = useState(null)
@@ -52,6 +54,8 @@ export default function Students() {
   const [renewSaving, setRenewSaving] = useState(false)
   const [renewError, setRenewError] = useState('')
   const [renewDone, setRenewDone] = useState(false)
+  const [renewCustomPackageMode, setRenewCustomPackageMode] = useState(false)
+  const [renewCustomPackage, setRenewCustomPackage] = useState({ package_name: '', total_classes: '', price: '', is_unlimited: false })
 
   const [searchParams, setSearchParams] = useSearchParams()
 
@@ -104,6 +108,29 @@ export default function Students() {
     setPackages(data || [])
   }
 
+  // Inserts a one-off row in the packages table for a custom class
+  // count/price a parent negotiated in person (e.g. same total price,
+  // just split into more/shorter sessions). Everything downstream
+  // (payments, package_history, remaining-classes math) just treats
+  // this like any other package, so nothing else needs to special-case
+  // "custom" packages. status: 'Custom' keeps it out of the picker
+  // dropdown for future members (loadPackages only loads 'Active').
+  async function createCustomPackage(details) {
+    const { data, error } = await supabase
+      .from('packages')
+      .insert({
+        package_name: details.package_name.trim() || 'Custom Package',
+        total_classes: details.is_unlimited ? 0 : Number(details.total_classes) || 0,
+        price: Number(details.price) || 0,
+        is_unlimited: details.is_unlimited,
+        status: 'Custom',
+      })
+      .select()
+      .single()
+
+    return { data, error }
+  }
+
   function handlePackageChange(packageId) {
     const pkg = packages.find((p) => p.id === packageId)
 
@@ -153,7 +180,27 @@ export default function Students() {
 
     setSaving(true)
 
-    const pkg = packages.find((p) => p.id === form.package_id)
+    let pkg = packages.find((p) => p.id === form.package_id)
+    let resolvedPackageId = form.package_id || null
+
+    if (customPackageMode) {
+      if (!customPackage.package_name.trim() || (!customPackage.is_unlimited && !customPackage.total_classes)) {
+        setSaving(false)
+        setError('Give the custom package a name and a number of classes (or mark it unlimited).')
+        return
+      }
+
+      const { data: newPkg, error: pkgError } = await createCustomPackage(customPackage)
+
+      if (pkgError) {
+        setSaving(false)
+        setError(`Could not create custom package: ${pkgError.message}`)
+        return
+      }
+
+      pkg = newPkg
+      resolvedPackageId = newPkg.id
+    }
 
     // Compute this up front so the very first insert already has the
     // right numbers — no separate "oops, patch it after" update needed,
@@ -172,7 +219,7 @@ export default function Students() {
         full_name: form.full_name,
         phone: form.phone,
         email: form.email || null,
-        package_id: form.package_id || null,
+        package_id: resolvedPackageId,
         remaining_classes: startingRemaining,
         classes_used: startingUsed,
       })
@@ -188,7 +235,7 @@ export default function Students() {
     if (form.amount_charged !== '') {
       const { error: paymentError } = await supabase.from('payments').insert({
         student_id: newStudent.id,
-        package_id: form.package_id || null,
+        package_id: resolvedPackageId,
         amount: Number(form.amount_charged),
         payment_method: form.payment_method,
       })
@@ -245,6 +292,8 @@ export default function Students() {
     setForm(emptyForm)
     setPastClasses([])
     setDuplicateWarning(null)
+    setCustomPackageMode(false)
+    setCustomPackage({ package_name: '', total_classes: '', price: '', is_unlimited: false })
     setShowForm(false)
 
     await loadStudents()
@@ -272,6 +321,8 @@ export default function Students() {
     setRenewMethod('Cash')
     setRenewError('')
     setRenewDone(false)
+    setRenewCustomPackageMode(false)
+    setRenewCustomPackage({ package_name: '', total_classes: '', price: '', is_unlimited: false })
   }
 
   function closeEditModal() {
@@ -291,19 +342,40 @@ export default function Students() {
     e.preventDefault()
     setRenewError('')
 
-    if (!renewPackageId) {
-      setRenewError('Pick a package to renew with.')
-      return
-    }
+    let pkg = null
 
-    const pkg = packages.find((p) => p.id === renewPackageId)
+    if (renewCustomPackageMode) {
+      if (!renewCustomPackage.package_name.trim() || (!renewCustomPackage.is_unlimited && !renewCustomPackage.total_classes)) {
+        setRenewError('Give the custom package a name and a number of classes (or mark it unlimited).')
+        return
+      }
+    } else {
+      if (!renewPackageId) {
+        setRenewError('Pick a package to renew with.')
+        return
+      }
 
-    if (!pkg) {
-      setRenewError('Package not found.')
-      return
+      pkg = packages.find((p) => p.id === renewPackageId)
+
+      if (!pkg) {
+        setRenewError('Package not found.')
+        return
+      }
     }
 
     setRenewSaving(true)
+
+    if (renewCustomPackageMode) {
+      const { data: newPkg, error: pkgError } = await createCustomPackage(renewCustomPackage)
+
+      if (pkgError) {
+        setRenewSaving(false)
+        setRenewError(`Could not create custom package: ${pkgError.message}`)
+        return
+      }
+
+      pkg = newPkg
+    }
 
     const { error: paymentError } = await supabase.from('payments').insert({
       student_id: editStudent.id,
@@ -609,23 +681,86 @@ export default function Students() {
             </div>
 
             <div>
-              <label className="block text-xs text-line-dim mb-1.5">
-                Package
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs text-line-dim">
+                  Package
+                </label>
 
-              <select
-                value={form.package_id}
-                onChange={(e) => handlePackageChange(e.target.value)}
-                className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
-              >
-                <option value="">No package</option>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCustomPackageMode(!customPackageMode)
+                    setForm({ ...form, package_id: '', amount_charged: '' })
+                  }}
+                  className="text-[11px] text-chalk hover:text-chalk-bright font-medium"
+                >
+                  {customPackageMode ? '← Choose from existing packages' : '+ Use a custom package'}
+                </button>
+              </div>
 
-                {packages.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.package_name} (AED {p.price} list price)
-                  </option>
-                ))}
-              </select>
+              {customPackageMode ? (
+                <div className="space-y-2 bg-court-800/60 border border-court-600 rounded-md p-3">
+                  <input
+                    placeholder="Package name (e.g. 16 x 1hr sessions)"
+                    value={customPackage.package_name}
+                    onChange={(e) => setCustomPackage({ ...customPackage, package_name: e.target.value })}
+                    className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
+                  />
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="number"
+                      min="0"
+                      placeholder="Total classes"
+                      value={customPackage.total_classes}
+                      disabled={customPackage.is_unlimited}
+                      onChange={(e) => setCustomPackage({ ...customPackage, total_classes: e.target.value })}
+                      className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk disabled:opacity-50"
+                    />
+
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder="Price (AED)"
+                      value={customPackage.price}
+                      onChange={(e) => {
+                        setCustomPackage({ ...customPackage, price: e.target.value })
+                        setForm({ ...form, amount_charged: e.target.value })
+                      }}
+                      className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
+                    />
+                  </div>
+
+                  <label className="flex items-center gap-2 text-xs text-line-dim">
+                    <input
+                      type="checkbox"
+                      checked={customPackage.is_unlimited}
+                      onChange={(e) => setCustomPackage({ ...customPackage, is_unlimited: e.target.checked })}
+                    />
+                    Unlimited classes
+                  </label>
+
+                  <p className="text-[11px] text-line-dim">
+                    Creates a one-off package with these exact details — it won't show up in the
+                    picker for other members, only this enrollment.
+                  </p>
+                </div>
+              ) : (
+                <select
+                  value={form.package_id}
+                  onChange={(e) => handlePackageChange(e.target.value)}
+                  className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
+                >
+                  <option value="">No package</option>
+
+                  {packages.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.package_name} (AED {p.price} list price)
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
 
             <div>
@@ -729,7 +864,9 @@ export default function Students() {
 
               {pastClasses.length > 0 && (() => {
                 const validCount = pastClasses.filter((r) => r.date).length
-                const selectedPkg = packages.find((p) => p.id === form.package_id)
+                const selectedPkg = customPackageMode
+                  ? { is_unlimited: customPackage.is_unlimited, total_classes: Number(customPackage.total_classes) || 0 }
+                  : packages.find((p) => p.id === form.package_id)
 
                 return (
                   <p className="text-[11px] text-line-dim mt-2">
@@ -763,6 +900,8 @@ export default function Students() {
                   setForm(emptyForm)
                   setPastClasses([])
                   setDuplicateWarning(null)
+                  setCustomPackageMode(false)
+                  setCustomPackage({ package_name: '', total_classes: '', price: '', is_unlimited: false })
                 }}
                 className="flex-1 border border-court-600 rounded-md py-2 text-sm text-line-dim hover:bg-court-800"
               >
@@ -1016,27 +1155,86 @@ export default function Students() {
                   className="space-y-3"
                 >
                   <div>
-                    <label className="block text-xs text-line-dim mb-1.5">
-                      Package
-                    </label>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="block text-xs text-line-dim">
+                        Package
+                      </label>
 
-                    <select
-                      value={renewPackageId}
-                      onChange={(e) =>
-                        handleRenewPackageChange(e.target.value)
-                      }
-                      className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
-                    >
-                      <option value="">
-                        Select a package…
-                      </option>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRenewCustomPackageMode(!renewCustomPackageMode)
+                          setRenewPackageId('')
+                          setRenewAmount('')
+                        }}
+                        className="text-[11px] text-chalk hover:text-chalk-bright font-medium"
+                      >
+                        {renewCustomPackageMode ? '← Choose from existing packages' : '+ Use a custom package'}
+                      </button>
+                    </div>
 
-                      {packages.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.package_name} (AED {p.price} list price)
+                    {renewCustomPackageMode ? (
+                      <div className="space-y-2 bg-court-800/60 border border-court-600 rounded-md p-3">
+                        <input
+                          placeholder="Package name (e.g. 16 x 1hr sessions)"
+                          value={renewCustomPackage.package_name}
+                          onChange={(e) => setRenewCustomPackage({ ...renewCustomPackage, package_name: e.target.value })}
+                          className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
+                        />
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <input
+                            type="number"
+                            min="0"
+                            placeholder="Total classes"
+                            value={renewCustomPackage.total_classes}
+                            disabled={renewCustomPackage.is_unlimited}
+                            onChange={(e) => setRenewCustomPackage({ ...renewCustomPackage, total_classes: e.target.value })}
+                            className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk disabled:opacity-50"
+                          />
+
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            placeholder="Price (AED)"
+                            value={renewCustomPackage.price}
+                            onChange={(e) => {
+                              setRenewCustomPackage({ ...renewCustomPackage, price: e.target.value })
+                              setRenewAmount(e.target.value)
+                            }}
+                            className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
+                          />
+                        </div>
+
+                        <label className="flex items-center gap-2 text-xs text-line-dim">
+                          <input
+                            type="checkbox"
+                            checked={renewCustomPackage.is_unlimited}
+                            onChange={(e) => setRenewCustomPackage({ ...renewCustomPackage, is_unlimited: e.target.checked })}
+                          />
+                          Unlimited classes
+                        </label>
+                      </div>
+                    ) : (
+                      <select
+                        value={renewPackageId}
+                        onChange={(e) =>
+                          handleRenewPackageChange(e.target.value)
+                        }
+                        className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
+                      >
+                        <option value="">
+                          Select a package…
                         </option>
-                      ))}
-                    </select>
+
+                        {packages.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.package_name} (AED {p.price} list price)
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
