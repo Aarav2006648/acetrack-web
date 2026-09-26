@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Layout from '../components/Layout'
 import { supabase } from '../lib/supabaseClient'
 import { normalizePhone } from '../lib/phone'
@@ -43,13 +43,22 @@ export default function Announcements() {
   }, [])
 
   // Deep-links from the Dashboard's stat cards land here with a #hash —
-  // scroll to that section once the page mounts so staff see the right
-  // list immediately instead of landing at the top.
+  // scroll to that section once its data has actually loaded, not on
+  // first mount. Both "Hasn't Attended Recently" and "Classes Ending
+  // Soon" start as a single loading line and can grow a lot once their
+  // real lists render, which would otherwise shift the target out from
+  // under an already-started smooth scroll (e.g. landing inside the
+  // inactive-members list instead of the renewals section below it).
+  const scrolledToHash = useRef(false)
   useEffect(() => {
+    if (scrolledToHash.current) return
     if (!window.location.hash) return
+    if (inactiveLoading || renewalsLoading) return
+
+    scrolledToHash.current = true
     const el = document.getElementById(window.location.hash.slice(1))
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  }, [])
+  }, [inactiveLoading, renewalsLoading])
 
   // Flags Active members who still have classes left (or an unlimited
   // package) but haven't checked in for INACTIVITY_DAYS — a nudge to call
@@ -301,22 +310,35 @@ export default function Announcements() {
               <p className="px-5 py-6 text-sm text-line-dim">No members are close to running out right now.</p>
             )}
             <div className="divide-y divide-court-800">
-              {renewals.map((s) => (
-                <div key={s.id} className="px-5 py-3 flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-medium">{s.full_name}</p>
-                    <p className="text-xs text-line-dim">
-                      {s.remaining_classes <= 0 ? 'Package finished' : '1 class left'}
-                    </p>
+              {renewals.map((s) => {
+                const phone = normalizePhone(s.phone)
+                return (
+                  <div key={s.id} className="px-5 py-3 flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium">{s.full_name}</p>
+                      <p className="text-xs text-line-dim">
+                        {s.remaining_classes <= 0 ? 'Package finished' : '1 class left'}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
+                      {phone && (
+                        <a
+                          href={`tel:${phone}`}
+                          className="text-xs bg-danger/15 hover:bg-danger/25 text-danger px-3 py-1.5 rounded-md font-medium transition-colors"
+                        >
+                          Call {s.phone}
+                        </a>
+                      )}
+                      <button
+                        onClick={() => handleSendRenewal(s)}
+                        className="text-xs bg-chalk/15 hover:bg-chalk/25 text-chalk px-3 py-1.5 rounded-md font-medium transition-colors"
+                      >
+                        {sentId === s.id ? 'Opened ✓' : 'Send reminder on WhatsApp'}
+                      </button>
+                    </div>
                   </div>
-                  <button
-                    onClick={() => handleSendRenewal(s)}
-                    className="text-xs bg-chalk/15 hover:bg-chalk/25 text-chalk px-3 py-1.5 rounded-md font-medium transition-colors shrink-0"
-                  >
-                    {sentId === s.id ? 'Opened ✓' : 'Send reminder on WhatsApp'}
-                  </button>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </div>
         </section>
