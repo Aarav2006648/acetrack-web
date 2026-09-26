@@ -501,7 +501,7 @@ export default function Students() {
 
   return (
     <Layout>
-      <div className="p-8 max-w-6xl">
+      <div className="p-4 sm:p-8 max-w-6xl">
         <header className="flex items-center justify-between mb-8">
           <div>
             <h1 className="font-display text-3xl">MEMBERS</h1>
@@ -526,7 +526,7 @@ export default function Students() {
           className="w-full max-w-sm bg-court-900 border border-court-700 rounded-md px-3 py-2 text-sm mb-5 focus:outline-none focus:ring-2 focus:ring-chalk"
         />
 
-        <div className="bg-court-900 border border-court-700 rounded-xl overflow-hidden">
+        <div className="bg-court-900 border border-court-700 rounded-xl overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-line-dim text-xs uppercase border-b border-court-700">

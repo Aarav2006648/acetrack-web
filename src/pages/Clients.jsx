@@ -192,7 +192,7 @@ export default function Clients() {
 
         {errorMsg && <p className="text-sm text-danger mb-4">{errorMsg}</p>}
 
-        <div className="bg-court-900 border border-court-700 rounded-xl overflow-hidden">
+        <div className="bg-court-900 border border-court-700 rounded-xl overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-line-dim text-xs uppercase border-b border-court-700">

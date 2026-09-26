@@ -131,7 +131,7 @@ export default function Reports() {
 
   return (
     <Layout>
-      <div className="p-8 max-w-4xl">
+      <div className="p-4 sm:p-8 max-w-4xl">
         <header className="mb-6">
           <h1 className="font-display text-3xl">REPORTS</h1>
           <p className="text-line-dim text-sm mt-1">Membership payments, badminton attendance, and billiards rentals for a date range</p>
@@ -202,7 +202,7 @@ export default function Reports() {
                 <p className="font-mono text-3xl mt-1 text-chalk">AED {membershipTotal.toFixed(0)}</p>
               </div>
             </div>
-            <div className="bg-court-900 border border-court-700 rounded-xl overflow-hidden mb-10">
+            <div className="bg-court-900 border border-court-700 rounded-xl overflow-x-auto mb-10">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left text-line-dim text-xs uppercase border-b border-court-700">
@@ -260,7 +260,7 @@ export default function Reports() {
             <p className="text-xs text-line-dim mb-2">
               Note: members pay at enrollment (see Membership Payments above) — their check-ins here won't show a per-visit amount. Only guest walk-ins carry a payment per visit.
             </p>
-            <div className="bg-court-900 border border-court-700 rounded-xl overflow-hidden mb-10">
+            <div className="bg-court-900 border border-court-700 rounded-xl overflow-x-auto mb-10">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left text-line-dim text-xs uppercase border-b border-court-700">
@@ -307,7 +307,7 @@ export default function Reports() {
                 <p className="font-mono text-3xl mt-1 text-danger">AED {rentalsPending.toFixed(0)}</p>
               </div>
             </div>
-            <div className="bg-court-900 border border-court-700 rounded-xl overflow-hidden">
+            <div className="bg-court-900 border border-court-700 rounded-xl overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left text-line-dim text-xs uppercase border-b border-court-700">

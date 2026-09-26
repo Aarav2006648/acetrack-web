@@ -92,7 +92,7 @@ export default function Rentals() {
 
   return (
     <Layout>
-      <div className="p-8 max-w-4xl">
+      <div className="p-4 sm:p-8 max-w-4xl">
         <header className="mb-6">
           <h1 className="font-display text-3xl">TABLE RENTALS</h1>
           <p className="text-line-dim text-sm mt-1">Billiards — start a timed table booking for a walk-in</p>
@@ -158,7 +158,7 @@ export default function Rentals() {
           <p className="text-sm text-line-dim">Collected: <span className="text-chalk font-mono">AED {todayTotal.toFixed(0)}</span></p>
         </div>
 
-        <div className="bg-court-900 border border-court-700 rounded-xl overflow-hidden">
+        <div className="bg-court-900 border border-court-700 rounded-xl overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-line-dim text-xs uppercase border-b border-court-700">

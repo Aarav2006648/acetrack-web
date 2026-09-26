@@ -161,7 +161,7 @@ export default function Dashboard() {
 
   return (
     <Layout>
-      <div className="p-8 max-w-6xl">
+      <div className="p-4 sm:p-8 max-w-6xl">
         <header className="mb-8">
           <h1 className="font-display text-3xl">DASHBOARD</h1>
           <p className="text-line-dim text-sm mt-1">Today, {new Date().toLocaleDateString('en-AE', { weekday: 'long', day: 'numeric', month: 'long' })}</p>

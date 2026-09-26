@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
@@ -14,6 +15,7 @@ const NAV_ITEMS = [
 export default function Layout({ children }) {
   const { session, signOut } = useAuth()
   const navigate = useNavigate()
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
 
   const handleSignOut = async () => {
     await signOut()
@@ -21,8 +23,82 @@ export default function Layout({ children }) {
   }
 
   return (
-    <div className="min-h-screen flex">
-      <aside className="w-60 shrink-0 bg-court-900 border-r border-court-700 flex flex-col">
+    <div className="min-h-screen md:flex">
+      {/* Phone/tablet top bar — the full sidebar below takes over from md
+          upward, so this (and the slide-out menu it opens) only ever
+          shows on a narrow screen. */}
+      <div className="md:hidden sticky top-0 z-10 flex items-center justify-between px-4 py-3 bg-court-900 border-b border-court-700">
+        <div className="flex items-center gap-2">
+          <span className="w-2.5 h-2.5 rounded-full bg-chalk" />
+          <span className="font-display text-lg tracking-wide">ACETRACK</span>
+        </div>
+        <button
+          type="button"
+          onClick={() => setMobileNavOpen(true)}
+          aria-label="Open menu"
+          className="p-2 -mr-2 text-line-dim hover:text-line"
+        >
+          <MenuIcon className="w-6 h-6" />
+        </button>
+      </div>
+
+      {mobileNavOpen && (
+        <div className="md:hidden fixed inset-0 z-50 flex">
+          <div className="absolute inset-0 bg-black/60" onClick={() => setMobileNavOpen(false)} />
+
+          <aside className="relative w-64 max-w-[80vw] bg-court-900 border-r border-court-700 flex flex-col">
+            <div className="px-5 py-6 border-b border-court-700 flex items-center justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-chalk" />
+                  <span className="font-display text-xl tracking-wide">ACETRACK</span>
+                </div>
+                <p className="text-[11px] text-line-dim font-mono mt-1">AL HAYATT CLUB</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMobileNavOpen(false)}
+                aria-label="Close menu"
+                className="p-1 text-line-dim hover:text-line"
+              >
+                <CloseIcon className="w-5 h-5" />
+              </button>
+            </div>
+
+            <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto">
+              {NAV_ITEMS.map(({ to, label, icon: Icon }) => (
+                <NavLink
+                  key={to}
+                  to={to}
+                  end={to === '/'}
+                  onClick={() => setMobileNavOpen(false)}
+                  className={({ isActive }) =>
+                    `flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors ${
+                      isActive ? 'bg-court-700 text-line' : 'text-line-dim hover:bg-court-800 hover:text-line'
+                    }`
+                  }
+                >
+                  <Icon className="w-4 h-4 shrink-0" />
+                  {label}
+                </NavLink>
+              ))}
+            </nav>
+
+            <div className="p-3 border-t border-court-700">
+              <p className="px-3 text-xs text-line-dim truncate">{session?.user?.email}</p>
+              <button
+                onClick={handleSignOut}
+                className="mt-2 w-full text-left px-3 py-2 rounded-md text-sm text-line-dim hover:bg-court-800 hover:text-danger transition-colors"
+              >
+                Sign out
+              </button>
+            </div>
+          </aside>
+        </div>
+      )}
+
+      {/* Full sidebar — laptop/desktop only (md and up); unchanged from before. */}
+      <aside className="hidden md:flex w-60 shrink-0 bg-court-900 border-r border-court-700 flex-col">
         <div className="px-5 py-6 border-b border-court-700">
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-chalk" />
@@ -65,6 +141,20 @@ export default function Layout({ children }) {
   )
 }
 
+function MenuIcon(props) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}>
+      <path d="M4 7h16M4 12h16M4 17h16" strokeLinecap="round" />
+    </svg>
+  )
+}
+function CloseIcon(props) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}>
+      <path d="M6 6l12 12M18 6L6 18" strokeLinecap="round" />
+    </svg>
+  )
+}
 function DashIcon(props) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}>
