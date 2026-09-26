@@ -124,8 +124,21 @@ export default function Dashboard() {
     setUndoingId(null)
   }
 
+  // "Active Members" here means currently-engaged members — Active status
+  // AND not already sitting in the Inactive Members bucket below — so the
+  // two cards add up sensibly instead of double-counting the same person
+  // as both "active" and "inactive" at once.
+  const engagedMembers =
+    stats.totalMembers != null && stats.inactiveCount != null
+      ? stats.totalMembers - stats.inactiveCount
+      : stats.totalMembers
+
   const cards = [
-    { label: 'Active Members', value: stats.totalMembers },
+    {
+      label: 'Active Members',
+      value: engagedMembers,
+      sub: stats.inactiveCount > 0 ? `${stats.inactiveCount} inactive not counted` : null,
+    },
     { label: 'Check-ins Today', value: stats.todayCheckins },
     {
       label: 'Renewals Due',
