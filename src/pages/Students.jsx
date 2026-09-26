@@ -18,6 +18,7 @@ const emptyForm = {
   full_name: '',
   phone: '',
   email: '',
+  join_date: '',
   package_id: '',
   amount_charged: '',
   payment_method: 'Cash',
@@ -219,6 +220,7 @@ export default function Students() {
         full_name: form.full_name,
         phone: form.phone,
         email: form.email || null,
+        join_date: form.join_date || todayStr(),
         package_id: resolvedPackageId,
         remaining_classes: startingRemaining,
         classes_used: startingUsed,
@@ -308,6 +310,7 @@ export default function Students() {
       full_name: student.full_name,
       phone: student.phone,
       email: student.email || '',
+      join_date: student.join_date || todayStr(),
       package_id: student.package_id || '',
       remaining_classes: student.remaining_classes ?? 0,
       classes_used: student.classes_used ?? 0,
@@ -437,6 +440,7 @@ export default function Students() {
         full_name: editForm.full_name,
         phone: editForm.phone,
         email: editForm.email || null,
+        join_date: editForm.join_date || undefined,
         package_id: editForm.package_id || null,
         remaining_classes: Number(editForm.remaining_classes),
         status: editForm.status,
@@ -616,6 +620,8 @@ export default function Students() {
             setForm(emptyForm)
             setPastClasses([])
             setDuplicateWarning(null)
+            setCustomPackageMode(false)
+            setCustomPackage({ package_name: '', total_classes: '', price: '', is_unlimited: false })
           }}
         >
           <form
@@ -678,6 +684,31 @@ export default function Students() {
                 }
                 className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
               />
+            </div>
+
+            <div>
+              <label className="block text-xs text-line-dim mb-1.5">
+                Joined on
+              </label>
+
+              <input
+                type="date"
+                max={todayStr()}
+                value={form.join_date || todayStr()}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    join_date: e.target.value,
+                  })
+                }
+                className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
+              />
+
+              <p className="text-[11px] text-line-dim mt-1">
+                Defaults to today — backdate this for a member who's only
+                now being added to the system, so join date (and carry-forward
+                checks) reflect reality.
+              </p>
             </div>
 
             <div>
@@ -991,6 +1022,25 @@ export default function Students() {
                     setEditForm({
                       ...editForm,
                       email: e.target.value,
+                    })
+                  }
+                  className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs text-line-dim mb-1.5">
+                  Joined on
+                </label>
+
+                <input
+                  type="date"
+                  max={todayStr()}
+                  value={editForm.join_date || ''}
+                  onChange={(e) =>
+                    setEditForm({
+                      ...editForm,
+                      join_date: e.target.value,
                     })
                   }
                   className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
@@ -1390,6 +1440,8 @@ export default function Students() {
                   setForm(emptyForm)
                   setPastClasses([])
                   setDuplicateWarning(null)
+                  setCustomPackageMode(false)
+                  setCustomPackage({ package_name: '', total_classes: '', price: '', is_unlimited: false })
                   openEdit(match)
                 }}
                 className="w-full bg-chalk hover:bg-chalk-bright text-court-950 font-semibold rounded-md py-2.5 text-sm"

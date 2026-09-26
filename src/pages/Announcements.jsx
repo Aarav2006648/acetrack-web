@@ -2,18 +2,9 @@ import { useEffect, useState } from 'react'
 import Layout from '../components/Layout'
 import { supabase } from '../lib/supabaseClient'
 import { normalizePhone } from '../lib/phone'
-import { fetchAllRows } from '../lib/fetchAllRows'
+import { loadInactiveMembers, INACTIVITY_DAYS } from '../lib/inactivity'
 
 const todayStr = () => new Date().toISOString().slice(0, 10)
-
-// How many days of no check-ins before a still-active member gets flagged
-// as "hasn't been seen" — tweak this single number if the club wants a
-// shorter/longer window than a week.
-const INACTIVITY_DAYS = 7
-
-function daysBetween(a, b) {
-  return Math.floor((a - b) / (1000 * 60 * 60 * 24))
-}
 
 function buildRenewalMessage(student) {
   const name = student.full_name
@@ -51,52 +42,26 @@ export default function Announcements() {
     loadTodaysWalkIns()
   }, [])
 
+  // Deep-links from the Dashboard's stat cards land here with a #hash —
+  // scroll to that section once the page mounts so staff see the right
+  // list immediately instead of landing at the top.
+  useEffect(() => {
+    if (!window.location.hash) return
+    const el = document.getElementById(window.location.hash.slice(1))
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [])
+
   // Flags Active members who still have classes left (or an unlimited
   // package) but haven't checked in for INACTIVITY_DAYS — a nudge to call
   // the parent and check in, rather than waiting for them to just fade out.
+  // Shared with the Dashboard's "Inactive Members" count via lib/inactivity
+  // so the two pages always agree on who counts.
   async function loadInactive() {
     setInactiveLoading(true)
     setInactiveError('')
 
     try {
-      const [activeStudentsRes, attendanceRows] = await Promise.all([
-        supabase
-          .from('students')
-          .select('id, full_name, phone, join_date, remaining_classes, packages(is_unlimited)')
-          .eq('status', 'Active'),
-        fetchAllRows((from, to) =>
-          supabase
-            .from('attendance')
-            .select('student_id, check_in_time')
-            .not('student_id', 'is', null)
-            .range(from, to)
-        ),
-      ])
-
-      if (activeStudentsRes.error) throw activeStudentsRes.error
-
-      const lastVisitByStudent = new Map()
-      for (const row of attendanceRows) {
-        const existing = lastVisitByStudent.get(row.student_id)
-        if (!existing || row.check_in_time > existing) {
-          lastVisitByStudent.set(row.student_id, row.check_in_time)
-        }
-      }
-
-      const now = new Date()
-
-      const flagged = (activeStudentsRes.data || [])
-        .filter((s) => s.packages?.is_unlimited || s.remaining_classes > 0)
-        .map((s) => {
-          const lastVisit = lastVisitByStudent.get(s.id) || null
-          // No visit on record yet — measure from their join date instead,
-          // so a member who joined yesterday isn't immediately flagged.
-          const referenceDate = lastVisit ? new Date(lastVisit) : new Date(`${s.join_date}T00:00:00`)
-          return { ...s, lastVisit, daysSince: daysBetween(now, referenceDate) }
-        })
-        .filter((s) => s.daysSince >= INACTIVITY_DAYS)
-        .sort((a, b) => b.daysSince - a.daysSince)
-
+      const flagged = await loadInactiveMembers()
       setInactive(flagged)
     } catch (err) {
       setInactiveError(err.message || 'Could not check attendance.')
@@ -274,7 +239,7 @@ export default function Announcements() {
         </header>
 
         {/* NOT SEEN RECENTLY */}
-        <section className="mb-8">
+        <section id="hasnt-attended-recently" className="mb-8 scroll-mt-4">
           <h2 className="font-display text-lg tracking-wide mb-3">HASN'T ATTENDED RECENTLY</h2>
           <p className="text-xs text-line-dim mb-3">
             Active members with classes remaining who haven't checked in for {INACTIVITY_DAYS}+ days —
@@ -328,7 +293,7 @@ export default function Announcements() {
         </section>
 
         {/* RENEWALS */}
-        <section className="mb-8">
+        <section id="classes-ending-soon" className="mb-8 scroll-mt-4">
           <h2 className="font-display text-lg tracking-wide mb-3">CLASSES ENDING SOON</h2>
           <div className="bg-court-900 border border-court-700 rounded-xl overflow-hidden">
             {renewalsLoading && <p className="px-5 py-6 text-sm text-line-dim">Loading…</p>}
