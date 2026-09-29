@@ -127,6 +127,32 @@ export default function Reports() {
     setEditingPayment(null)
   }
 
+  // For a payment logged by mistake entirely (wrong member, duplicate
+  // entry, etc.) rather than just a wrong amount — removes the record
+  // outright after a confirmation, since this can't be undone.
+  async function handleDeletePayment() {
+    const name = editingPayment.students?.full_name || 'Unknown'
+    const confirmed = window.confirm(
+      `Delete this AED ${Number(editingPayment.amount).toFixed(0)} payment for ${name}? This can't be undone.`
+    )
+    if (!confirmed) return
+
+    setEditSaving(true)
+    setEditError('')
+
+    const { error } = await supabase.from('payments').delete().eq('id', editingPayment.id)
+
+    setEditSaving(false)
+
+    if (error) {
+      setEditError(error.message)
+      return
+    }
+
+    setPaymentRows((rows) => rows.filter((row) => row.id !== editingPayment.id))
+    setEditingPayment(null)
+  }
+
   function nameFor(row) { return row.students?.full_name || row.guest_name || 'Unknown' }
   function phoneFor(row) { return row.students?.phone || row.guest_phone || '—' }
 
@@ -263,43 +289,72 @@ export default function Reports() {
                 <p className="font-mono text-3xl mt-1 text-chalk">AED {membershipTotal.toFixed(0)}</p>
               </div>
             </div>
-            <div className="bg-court-900 border border-court-700 rounded-xl overflow-x-auto mb-10">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-line-dim text-xs uppercase border-b border-court-700">
-                    <th className="px-5 py-3 font-medium">Date</th>
-                    <th className="px-5 py-3 font-medium">Name</th>
-                    <th className="px-5 py-3 font-medium">Phone</th>
-                    <th className="px-5 py-3 font-medium">Package</th>
-                    <th className="px-5 py-3 font-medium">Amount</th>
-                    <th className="px-5 py-3 font-medium">Method</th>
-                    <th className="px-5 py-3 font-medium"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-court-800">
-                  {paymentRows.map((p) => (
-                    <tr key={p.id}>
-                      <td className="px-5 py-3 text-line-dim">{new Date(p.payment_date).toLocaleDateString('en-AE')}</td>
-                      <td className="px-5 py-3 font-medium">{p.students?.full_name || 'Unknown'}</td>
-                      <td className="px-5 py-3 text-line-dim">{p.students?.phone || '—'}</td>
-                      <td className="px-5 py-3 text-line-dim">{p.packages?.package_name || '—'}</td>
-                      <td className="px-5 py-3 font-mono">AED {Number(p.amount).toFixed(0)}</td>
-                      <td className="px-5 py-3 text-line-dim">{p.payment_method}</td>
-                      <td className="px-5 py-3 text-right">
-                        <button
-                          onClick={() => openEditPayment(p)}
-                          className="text-xs border border-court-600 px-2.5 py-1 rounded-md text-line-dim hover:text-line hover:bg-court-800"
-                        >
-                          Edit
-                        </button>
-                      </td>
+            <div className="bg-court-900 border border-court-700 rounded-xl overflow-hidden mb-10">
+              {/* Tablet/desktop: full table */}
+              <div className="hidden sm:block overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-line-dim text-xs uppercase border-b border-court-700">
+                      <th className="px-5 py-3 font-medium">Date</th>
+                      <th className="px-5 py-3 font-medium">Name</th>
+                      <th className="px-5 py-3 font-medium">Phone</th>
+                      <th className="px-5 py-3 font-medium">Package</th>
+                      <th className="px-5 py-3 font-medium">Amount</th>
+                      <th className="px-5 py-3 font-medium">Method</th>
+                      <th className="px-5 py-3 font-medium"></th>
                     </tr>
-                  ))}
-                  {paymentRows.length === 0 && (
-                    <tr><td colSpan={7} className="px-5 py-8 text-center text-line-dim">No membership payments in this date range.</td></tr>
-                  )}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-court-800">
+                    {paymentRows.map((p) => (
+                      <tr key={p.id}>
+                        <td className="px-5 py-3 text-line-dim">{new Date(p.payment_date).toLocaleDateString('en-AE')}</td>
+                        <td className="px-5 py-3 font-medium">{p.students?.full_name || 'Unknown'}</td>
+                        <td className="px-5 py-3 text-line-dim">{p.students?.phone || '—'}</td>
+                        <td className="px-5 py-3 text-line-dim">{p.packages?.package_name || '—'}</td>
+                        <td className="px-5 py-3 font-mono">AED {Number(p.amount).toFixed(0)}</td>
+                        <td className="px-5 py-3 text-line-dim">{p.payment_method}</td>
+                        <td className="px-5 py-3 text-right">
+                          <button
+                            onClick={() => openEditPayment(p)}
+                            className="text-xs border border-court-600 px-2.5 py-1 rounded-md text-line-dim hover:text-line hover:bg-court-800"
+                          >
+                            Edit
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {paymentRows.length === 0 && (
+                      <tr><td colSpan={7} className="px-5 py-8 text-center text-line-dim">No membership payments in this date range.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Phone: stacked cards instead of a cramped/scrolling table */}
+              <div className="sm:hidden divide-y divide-court-800">
+                {paymentRows.map((p) => (
+                  <div key={p.id} className="px-4 py-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{p.students?.full_name || 'Unknown'}</p>
+                        <p className="text-xs text-line-dim mt-0.5">
+                          {new Date(p.payment_date).toLocaleDateString('en-AE')} · {p.packages?.package_name || '—'} · {p.payment_method}
+                        </p>
+                      </div>
+                      <p className="font-mono text-sm shrink-0">AED {Number(p.amount).toFixed(0)}</p>
+                    </div>
+                    <button
+                      onClick={() => openEditPayment(p)}
+                      className="mt-2 text-xs border border-court-600 px-2.5 py-1 rounded-md text-line-dim hover:text-line hover:bg-court-800"
+                    >
+                      Edit
+                    </button>
+                  </div>
+                ))}
+                {paymentRows.length === 0 && (
+                  <p className="px-4 py-8 text-center text-sm text-line-dim">No membership payments in this date range.</p>
+                )}
+              </div>
             </div>
 
             {/* Badminton attendance */}
@@ -330,30 +385,47 @@ export default function Reports() {
             <p className="text-xs text-line-dim mb-2">
               Note: members pay at enrollment (see Membership Payments above) — their check-ins here won't show a per-visit amount. Only guest walk-ins carry a payment per visit.
             </p>
-            <div className="bg-court-900 border border-court-700 rounded-xl overflow-x-auto mb-10">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-line-dim text-xs uppercase border-b border-court-700">
-                    <th className="px-5 py-3 font-medium">Name</th>
-                    <th className="px-5 py-3 font-medium">Phone</th>
-                    <th className="px-5 py-3 font-medium">Type</th>
-                    <th className="px-5 py-3 font-medium">Visits in range</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-court-800">
-                  {attendanceSummary.map((s) => (
-                    <tr key={`${s.name}-${s.isGuest}`}>
-                      <td className="px-5 py-3 font-medium">{s.name}</td>
-                      <td className="px-5 py-3 text-line-dim">{s.phone}</td>
-                      <td className="px-5 py-3 text-line-dim">{s.isGuest ? 'Guest' : 'Member'}</td>
-                      <td className="px-5 py-3 font-mono">{s.visits}</td>
+            <div className="bg-court-900 border border-court-700 rounded-xl overflow-hidden mb-10">
+              <div className="hidden sm:block overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-line-dim text-xs uppercase border-b border-court-700">
+                      <th className="px-5 py-3 font-medium">Name</th>
+                      <th className="px-5 py-3 font-medium">Phone</th>
+                      <th className="px-5 py-3 font-medium">Type</th>
+                      <th className="px-5 py-3 font-medium">Visits in range</th>
                     </tr>
-                  ))}
-                  {attendanceSummary.length === 0 && (
-                    <tr><td colSpan={4} className="px-5 py-8 text-center text-line-dim">No check-ins in this date range.</td></tr>
-                  )}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-court-800">
+                    {attendanceSummary.map((s) => (
+                      <tr key={`${s.name}-${s.isGuest}`}>
+                        <td className="px-5 py-3 font-medium">{s.name}</td>
+                        <td className="px-5 py-3 text-line-dim">{s.phone}</td>
+                        <td className="px-5 py-3 text-line-dim">{s.isGuest ? 'Guest' : 'Member'}</td>
+                        <td className="px-5 py-3 font-mono">{s.visits}</td>
+                      </tr>
+                    ))}
+                    {attendanceSummary.length === 0 && (
+                      <tr><td colSpan={4} className="px-5 py-8 text-center text-line-dim">No check-ins in this date range.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="sm:hidden divide-y divide-court-800">
+                {attendanceSummary.map((s) => (
+                  <div key={`${s.name}-${s.isGuest}`} className="px-4 py-3 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{s.name}</p>
+                      <p className="text-xs text-line-dim mt-0.5">{s.phone} · {s.isGuest ? 'Guest' : 'Member'}</p>
+                    </div>
+                    <p className="font-mono text-sm shrink-0">{s.visits} visits</p>
+                  </div>
+                ))}
+                {attendanceSummary.length === 0 && (
+                  <p className="px-4 py-8 text-center text-sm text-line-dim">No check-ins in this date range.</p>
+                )}
+              </div>
             </div>
 
             {/* Billiards rentals */}
@@ -377,36 +449,58 @@ export default function Reports() {
                 <p className="font-mono text-3xl mt-1 text-danger">AED {rentalsPending.toFixed(0)}</p>
               </div>
             </div>
-            <div className="bg-court-900 border border-court-700 rounded-xl overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-line-dim text-xs uppercase border-b border-court-700">
-                    <th className="px-5 py-3 font-medium">Name</th>
-                    <th className="px-5 py-3 font-medium">Phone</th>
-                    <th className="px-5 py-3 font-medium">Table</th>
-                    <th className="px-5 py-3 font-medium">Duration</th>
-                    <th className="px-5 py-3 font-medium">Price</th>
-                    <th className="px-5 py-3 font-medium">Payment</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-court-800">
-                  {rentalRows.map((r) => (
-                    <tr key={r.id}>
-                      <td className="px-5 py-3 font-medium">{nameFor(r)}</td>
-                      <td className="px-5 py-3 text-line-dim">{phoneFor(r)}</td>
-                      <td className="px-5 py-3 text-line-dim">{r.court_number || '—'}</td>
-                      <td className="px-5 py-3 font-mono">{r.duration} min</td>
-                      <td className="px-5 py-3 font-mono">AED {Number(r.price).toFixed(0)}</td>
-                      <td className="px-5 py-3">
-                        <span className={`text-xs px-2 py-1 rounded-full ${r.payment_status === 'Paid' ? 'bg-net/15 text-net' : 'bg-chalk/15 text-chalk'}`}>{r.payment_status}</span>
-                      </td>
+            <div className="bg-court-900 border border-court-700 rounded-xl overflow-hidden">
+              <div className="hidden sm:block overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-line-dim text-xs uppercase border-b border-court-700">
+                      <th className="px-5 py-3 font-medium">Name</th>
+                      <th className="px-5 py-3 font-medium">Phone</th>
+                      <th className="px-5 py-3 font-medium">Table</th>
+                      <th className="px-5 py-3 font-medium">Duration</th>
+                      <th className="px-5 py-3 font-medium">Price</th>
+                      <th className="px-5 py-3 font-medium">Payment</th>
                     </tr>
-                  ))}
-                  {rentalRows.length === 0 && (
-                    <tr><td colSpan={6} className="px-5 py-8 text-center text-line-dim">No rentals in this date range.</td></tr>
-                  )}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-court-800">
+                    {rentalRows.map((r) => (
+                      <tr key={r.id}>
+                        <td className="px-5 py-3 font-medium">{nameFor(r)}</td>
+                        <td className="px-5 py-3 text-line-dim">{phoneFor(r)}</td>
+                        <td className="px-5 py-3 text-line-dim">{r.court_number || '—'}</td>
+                        <td className="px-5 py-3 font-mono">{r.duration} min</td>
+                        <td className="px-5 py-3 font-mono">AED {Number(r.price).toFixed(0)}</td>
+                        <td className="px-5 py-3">
+                          <span className={`text-xs px-2 py-1 rounded-full ${r.payment_status === 'Paid' ? 'bg-net/15 text-net' : 'bg-chalk/15 text-chalk'}`}>{r.payment_status}</span>
+                        </td>
+                      </tr>
+                    ))}
+                    {rentalRows.length === 0 && (
+                      <tr><td colSpan={6} className="px-5 py-8 text-center text-line-dim">No rentals in this date range.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="sm:hidden divide-y divide-court-800">
+                {rentalRows.map((r) => (
+                  <div key={r.id} className="px-4 py-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{nameFor(r)}</p>
+                        <p className="text-xs text-line-dim mt-0.5">
+                          {phoneFor(r)} · Table {r.court_number || '—'} · {r.duration} min
+                        </p>
+                      </div>
+                      <p className="font-mono text-sm shrink-0">AED {Number(r.price).toFixed(0)}</p>
+                    </div>
+                    <span className={`inline-block mt-2 text-xs px-2 py-1 rounded-full ${r.payment_status === 'Paid' ? 'bg-net/15 text-net' : 'bg-chalk/15 text-chalk'}`}>{r.payment_status}</span>
+                  </div>
+                ))}
+                {rentalRows.length === 0 && (
+                  <p className="px-4 py-8 text-center text-sm text-line-dim">No rentals in this date range.</p>
+                )}
+              </div>
             </div>
           </>
         )}
@@ -463,22 +557,33 @@ export default function Reports() {
               the member's profile on the Members page if needed.
             </p>
 
-            <div className="flex gap-2">
+            <div className="flex items-center justify-between gap-2">
               <button
                 type="button"
-                onClick={closeEditPayment}
+                onClick={handleDeletePayment}
                 disabled={editSaving}
-                className="flex-1 border border-court-600 rounded-md py-2.5 text-sm text-line-dim hover:bg-court-800 disabled:opacity-60"
+                className="text-xs text-danger hover:text-danger/80 font-medium px-2 py-2 disabled:opacity-60"
               >
-                Cancel
+                Delete payment
               </button>
-              <button
-                type="submit"
-                disabled={editSaving}
-                className="flex-1 bg-chalk hover:bg-chalk-bright text-court-950 font-semibold rounded-md py-2.5 text-sm disabled:opacity-60"
-              >
-                {editSaving ? 'Saving…' : 'Save'}
-              </button>
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={closeEditPayment}
+                  disabled={editSaving}
+                  className="border border-court-600 rounded-md px-4 py-2.5 text-sm text-line-dim hover:bg-court-800 disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={editSaving}
+                  className="bg-chalk hover:bg-chalk-bright text-court-950 font-semibold rounded-md px-4 py-2.5 text-sm disabled:opacity-60"
+                >
+                  {editSaving ? 'Saving…' : 'Save'}
+                </button>
+              </div>
             </div>
           </form>
         </div>
