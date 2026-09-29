@@ -4,6 +4,7 @@ import Layout from '../components/Layout'
 import { supabase } from '../lib/supabaseClient'
 import { guestKeyFor } from '../lib/phone'
 import { fetchAllRows } from '../lib/fetchAllRows'
+import { loadInactiveMembers } from '../lib/inactivity'
 
 // Guest visits (badminton walk-ins, billiards rentals) are logged per-visit,
 // not as a single client record — so multiple visits from the same person
@@ -41,6 +42,7 @@ function dedupeGuestVisits(visits, typeLabel, dateField) {
 }
 
 const TYPE_OPTIONS = ['All', 'Member', 'Walk-in (Badminton)', 'Walk-in (Billiards)']
+const STATUS_OPTIONS = ['All', 'Active', 'Inactive']
 
 export default function Clients() {
   const [rows, setRows] = useState([])
@@ -48,6 +50,7 @@ export default function Clients() {
   const [errorMsg, setErrorMsg] = useState('')
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('All')
+  const [statusFilter, setStatusFilter] = useState('All')
 
   useEffect(() => {
     loadAll()
@@ -58,7 +61,7 @@ export default function Clients() {
     setErrorMsg('')
 
     try {
-      const [students, badmintonGuests, rentalGuests] = await Promise.all([
+      const [students, badmintonGuests, rentalGuests, inactiveMembers] = await Promise.all([
         fetchAllRows((from, to) =>
           supabase
             .from('students')
@@ -80,7 +83,13 @@ export default function Clients() {
             .is('student_id', null)
             .range(from, to)
         ),
+        loadInactiveMembers(),
       ])
+
+      // Same "hasn't checked in for a week+" rule the Dashboard uses —
+      // shown here instead of the raw enrollment status, which stays
+      // "Active" for everyone still enrolled regardless of attendance.
+      const inactiveIds = new Set(inactiveMembers.map((m) => m.id))
 
       const memberRows = students.map((s) => ({
         key: `member-${s.id}`,
@@ -89,7 +98,7 @@ export default function Clients() {
         phone: s.phone || '—',
         type: 'Member',
         detail: s.packages?.package_name || 'No package',
-        status: s.status,
+        status: inactiveIds.has(s.id) ? 'Inactive' : s.status,
         since: s.join_date,
       }))
 
@@ -107,11 +116,15 @@ export default function Clients() {
   const filtered = useMemo(() => {
     return rows.filter((r) => {
       if (typeFilter !== 'All' && r.type !== typeFilter) return false
+      // Guests have no status at all, so filtering to Active/Inactive
+      // naturally narrows the list to members — no need to also force
+      // the Type filter to "Member".
+      if (statusFilter !== 'All' && r.status !== statusFilter) return false
       if (!search.trim()) return true
       const q = search.trim().toLowerCase()
       return `${r.name} ${r.phone}`.toLowerCase().includes(q)
     })
-  }, [rows, search, typeFilter])
+  }, [rows, search, typeFilter, statusFilter])
 
   function exportCsv() {
     const csvRows = filtered.map((r) => ({
@@ -188,72 +201,129 @@ export default function Clients() {
               <option key={t} value={t}>{t}</option>
             ))}
           </select>
+
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="bg-court-900 border border-court-700 rounded-md px-3 py-2 text-sm"
+          >
+            {STATUS_OPTIONS.map((s) => (
+              <option key={s} value={s}>{s === 'All' ? 'Any status' : s}</option>
+            ))}
+          </select>
         </div>
 
         {errorMsg && <p className="text-sm text-danger mb-4">{errorMsg}</p>}
 
-        <div className="bg-court-900 border border-court-700 rounded-xl overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-line-dim text-xs uppercase border-b border-court-700">
-                <th className="px-5 py-3 font-medium">Name</th>
-                <th className="px-5 py-3 font-medium">Phone</th>
-                <th className="px-5 py-3 font-medium">Type</th>
-                <th className="px-5 py-3 font-medium">Detail</th>
-                <th className="px-5 py-3 font-medium">Last seen / Since</th>
-                <th className="px-5 py-3 font-medium"></th>
-              </tr>
-            </thead>
+        <div className="bg-court-900 border border-court-700 rounded-xl overflow-hidden">
+          <div className="hidden sm:block overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-line-dim text-xs uppercase border-b border-court-700">
+                  <th className="px-5 py-3 font-medium">Name</th>
+                  <th className="px-5 py-3 font-medium">Phone</th>
+                  <th className="px-5 py-3 font-medium">Type</th>
+                  <th className="px-5 py-3 font-medium">Detail</th>
+                  <th className="px-5 py-3 font-medium">Last seen / Since</th>
+                  <th className="px-5 py-3 font-medium"></th>
+                </tr>
+              </thead>
 
-            <tbody className="divide-y divide-court-800">
-              {filtered.map((r) => (
-                <tr
-                  key={r.key}
-                  onClick={() => openHistory(r)}
-                  className="cursor-pointer hover:bg-court-800/60"
-                >
-                  <td className="px-5 py-3 font-medium">{r.name}</td>
-                  <td className="px-5 py-3 text-line-dim">{r.phone}</td>
-                  <td className="px-5 py-3 text-line-dim">{r.type}</td>
-                  <td className="px-5 py-3 text-line-dim">
-                    {r.detail}{r.status ? ` · ${r.status}` : ''}
-                  </td>
-                  <td className="px-5 py-3 text-line-dim">
-                    {r.since ? new Date(r.since).toLocaleDateString('en-AE') : '—'}
-                  </td>
-                  <td className="px-5 py-3 text-right">
+              <tbody className="divide-y divide-court-800">
+                {filtered.map((r) => (
+                  <tr
+                    key={r.key}
+                    onClick={() => openHistory(r)}
+                    className="cursor-pointer hover:bg-court-800/60"
+                  >
+                    <td className="px-5 py-3 font-medium">{r.name}</td>
+                    <td className="px-5 py-3 text-line-dim">{r.phone}</td>
+                    <td className="px-5 py-3 text-line-dim">{r.type}</td>
+                    <td className="px-5 py-3 text-line-dim">
+                      {r.detail}{r.status ? ` · ${r.status}` : ''}
+                    </td>
+                    <td className="px-5 py-3 text-line-dim">
+                      {r.since ? new Date(r.since).toLocaleDateString('en-AE') : '—'}
+                    </td>
+                    <td className="px-5 py-3 text-right">
+                      {r.type === 'Member' && (
+                        <a
+                          href={`/students?edit=${r.studentId}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-xs text-chalk hover:text-chalk-bright font-medium"
+                        >
+                          Edit
+                        </a>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+
+                {loading && (
+                  <tr>
+                    <td colSpan={6} className="px-5 py-8 text-center text-line-dim text-sm">
+                      Loading everyone…
+                    </td>
+                  </tr>
+                )}
+
+                {!loading && filtered.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-5 py-8 text-center text-line-dim text-sm">
+                      No clients match your search/filter.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Phone: stacked cards instead of a cramped/scrolling table */}
+          <div className="sm:hidden divide-y divide-court-800">
+            {filtered.map((r) => (
+              <div
+                key={r.key}
+                onClick={() => openHistory(r)}
+                className="px-4 py-3 cursor-pointer hover:bg-court-800/60"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">{r.name}</p>
+                    <p className="text-xs text-line-dim mt-0.5">
+                      {r.phone} · {r.type}{r.status ? ` · ${r.status}` : ''}
+                    </p>
+                    <p className="text-xs text-line-dim mt-0.5">{r.detail}</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-xs text-line-dim">
+                      {r.since ? new Date(r.since).toLocaleDateString('en-AE') : '—'}
+                    </p>
                     {r.type === 'Member' && (
                       <a
                         href={`/students?edit=${r.studentId}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         onClick={(e) => e.stopPropagation()}
-                        className="text-xs text-chalk hover:text-chalk-bright font-medium"
+                        className="text-xs text-chalk hover:text-chalk-bright font-medium mt-1 inline-block"
                       >
                         Edit
                       </a>
                     )}
-                  </td>
-                </tr>
-              ))}
+                  </div>
+                </div>
+              </div>
+            ))}
 
-              {loading && (
-                <tr>
-                  <td colSpan={6} className="px-5 py-8 text-center text-line-dim text-sm">
-                    Loading everyone…
-                  </td>
-                </tr>
-              )}
+            {loading && (
+              <p className="px-4 py-8 text-center text-line-dim text-sm">Loading everyone…</p>
+            )}
 
-              {!loading && filtered.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="px-5 py-8 text-center text-line-dim text-sm">
-                    No clients match your search/filter.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+            {!loading && filtered.length === 0 && (
+              <p className="px-4 py-8 text-center text-line-dim text-sm">No clients match your search/filter.</p>
+            )}
+          </div>
         </div>
 
         <p className="text-xs text-line-dim mt-3">

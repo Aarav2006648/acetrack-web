@@ -4,6 +4,7 @@ import { QRCodeCanvas } from 'qrcode.react'
 import Layout from '../components/Layout'
 import { supabase } from '../lib/supabaseClient'
 import { normalizePhone } from '../lib/phone'
+import { loadInactiveMembers, INACTIVITY_DAYS } from '../lib/inactivity'
 
 function makeStudentCode() {
   const rand = Math.random().toString(36).slice(2, 7).toUpperCase()
@@ -34,6 +35,13 @@ export default function Students() {
   const [students, setStudents] = useState([])
   const [packages, setPackages] = useState([])
   const [search, setSearch] = useState('')
+
+  // Members who are still Active but haven't checked in for
+  // INACTIVITY_DAYS+ days — the same rule the Dashboard/Announcements use
+  // — keyed by student id so the list can flag them the same way instead
+  // of only ever showing the enrollment status (which stays "Active"
+  // until staff deliberately change it).
+  const [inactiveMap, setInactiveMap] = useState(new Map())
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState(emptyForm)
   const [pastClasses, setPastClasses] = useState([])
@@ -63,7 +71,18 @@ export default function Students() {
   useEffect(() => {
     loadStudents()
     loadPackages()
+    loadInactiveStatus()
   }, [])
+
+  async function loadInactiveStatus() {
+    try {
+      const flagged = await loadInactiveMembers()
+      setInactiveMap(new Map(flagged.map((s) => [s.id, s.daysSince])))
+    } catch {
+      // Non-critical — the list still works, it just won't flag anyone
+      // as inactive-by-attendance if this fails.
+    }
+  }
 
   // Lets other pages (All Clients, the history page) deep-link straight
   // into editing a member via /students?edit=<id>, instead of making
@@ -499,6 +518,21 @@ export default function Students() {
     return !s.packages?.is_unlimited && s.remaining_classes <= 1
   }
 
+  function renderStatusBadge(s) {
+    if (inactiveMap.has(s.id)) {
+      return (
+        <div>
+          <span className="text-xs bg-danger/15 text-danger px-2 py-0.5 rounded-full font-medium">Inactive</span>
+          <p className="text-[10px] text-line-dim mt-1">{inactiveMap.get(s.id)}d since last visit</p>
+        </div>
+      )
+    }
+    if (s.status === 'Active') {
+      return <span className="text-xs bg-net/15 text-net px-2 py-0.5 rounded-full font-medium">Active</span>
+    }
+    return <span className="text-xs bg-court-800 text-line-dim px-2 py-0.5 rounded-full font-medium">{s.status}</span>
+  }
+
   return (
     <Layout>
       <div className="p-4 sm:p-8 max-w-6xl">
@@ -526,81 +560,137 @@ export default function Students() {
           className="w-full max-w-sm bg-court-900 border border-court-700 rounded-md px-3 py-2 text-sm mb-5 focus:outline-none focus:ring-2 focus:ring-chalk"
         />
 
-        <div className="bg-court-900 border border-court-700 rounded-xl overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-line-dim text-xs uppercase border-b border-court-700">
-                <th className="px-5 py-3 font-medium">Member</th>
-                <th className="px-5 py-3 font-medium">Phone</th>
-                <th className="px-5 py-3 font-medium">Package</th>
-                <th className="px-5 py-3 font-medium">Classes left</th>
-                <th className="px-5 py-3 font-medium"></th>
-              </tr>
-            </thead>
-
-            <tbody className="divide-y divide-court-800">
-              {filtered.map((s) => (
-                <tr
-                  key={s.id}
-                  onClick={() => openEdit(s)}
-                  className="cursor-pointer hover:bg-court-800/50 transition-colors"
-                >
-                  <td className="px-5 py-3">
-                    <div className="font-medium">{s.full_name}</div>
-
-                    <div className="text-xs text-line-dim font-mono">
-                      {s.student_code}
-                    </div>
-                  </td>
-
-                  <td className="px-5 py-3 text-line-dim">
-                    {s.phone}
-                  </td>
-
-                  <td className="px-5 py-3 text-line-dim">
-                    {s.packages?.package_name || '—'}
-                  </td>
-
-                  <td className="px-5 py-3 font-mono">
-                    <span className={isRenewalDue(s) ? 'text-danger' : ''}>
-                      {s.packages?.is_unlimited
-                        ? 'Unlimited'
-                        : s.remaining_classes}
-                    </span>
-
-                    {isRenewalDue(s) && (
-                      <span className="ml-2 text-[10px] bg-danger/15 text-danger px-1.5 py-0.5 rounded-full uppercase tracking-wide">
-                        Renewal due
-                      </span>
-                    )}
-                  </td>
-
-                  <td className="px-5 py-3">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setQrStudent(s)
-                      }}
-                      className="text-chalk hover:text-chalk-bright text-xs font-medium"
-                    >
-                      View QR
-                    </button>
-                  </td>
+        <div className="bg-court-900 border border-court-700 rounded-xl overflow-hidden">
+          <div className="hidden sm:block overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-line-dim text-xs uppercase border-b border-court-700">
+                  <th className="px-5 py-3 font-medium">Member</th>
+                  <th className="px-5 py-3 font-medium">Phone</th>
+                  <th className="px-5 py-3 font-medium">Package</th>
+                  <th className="px-5 py-3 font-medium">Classes left</th>
+                  <th className="px-5 py-3 font-medium">Status</th>
+                  <th className="px-5 py-3 font-medium"></th>
                 </tr>
-              ))}
+              </thead>
 
-              {filtered.length === 0 && (
-                <tr>
-                  <td
-                    colSpan={5}
-                    className="px-5 py-8 text-center text-line-dim text-sm"
+              <tbody className="divide-y divide-court-800">
+                {filtered.map((s) => (
+                  <tr
+                    key={s.id}
+                    onClick={() => openEdit(s)}
+                    className="cursor-pointer hover:bg-court-800/50 transition-colors"
                   >
-                    No members yet. Enroll your first member to get started.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                    <td className="px-5 py-3">
+                      <div className="font-medium">{s.full_name}</div>
+
+                      <div className="text-xs text-line-dim font-mono">
+                        {s.student_code}
+                      </div>
+                    </td>
+
+                    <td className="px-5 py-3 text-line-dim">
+                      {s.phone}
+                    </td>
+
+                    <td className="px-5 py-3 text-line-dim">
+                      {s.packages?.package_name || '—'}
+                    </td>
+
+                    <td className="px-5 py-3 font-mono">
+                      <span className={isRenewalDue(s) ? 'text-danger' : ''}>
+                        {s.packages?.is_unlimited
+                          ? 'Unlimited'
+                          : s.remaining_classes}
+                      </span>
+
+                      {isRenewalDue(s) && (
+                        <span className="ml-2 text-[10px] bg-danger/15 text-danger px-1.5 py-0.5 rounded-full uppercase tracking-wide">
+                          Renewal due
+                        </span>
+                      )}
+                    </td>
+
+                    <td className="px-5 py-3">
+                      {renderStatusBadge(s)}
+                    </td>
+
+                    <td className="px-5 py-3">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setQrStudent(s)
+                        }}
+                        className="text-chalk hover:text-chalk-bright text-xs font-medium"
+                      >
+                        View QR
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+
+                {filtered.length === 0 && (
+                  <tr>
+                    <td
+                      colSpan={6}
+                      className="px-5 py-8 text-center text-line-dim text-sm"
+                    >
+                      No members yet. Enroll your first member to get started.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Phone: stacked cards instead of a cramped/scrolling table */}
+          <div className="sm:hidden divide-y divide-court-800">
+            {filtered.map((s) => (
+              <div
+                key={s.id}
+                onClick={() => openEdit(s)}
+                className="px-4 py-3 cursor-pointer hover:bg-court-800/50 transition-colors"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">{s.full_name}</p>
+                    <p className="text-xs text-line-dim font-mono mt-0.5">{s.student_code} · {s.phone}</p>
+                    <p className="text-xs text-line-dim mt-0.5">{s.packages?.package_name || 'No package'}</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className={`font-mono text-sm ${isRenewalDue(s) ? 'text-danger' : ''}`}>
+                      {s.packages?.is_unlimited ? 'Unlimited' : s.remaining_classes}
+                    </span>
+                    <div className="mt-1">
+                      {renderStatusBadge(s)}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 mt-2">
+                  {isRenewalDue(s) && (
+                    <span className="text-[10px] bg-danger/15 text-danger px-1.5 py-0.5 rounded-full uppercase tracking-wide">
+                      Renewal due
+                    </span>
+                  )}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setQrStudent(s)
+                    }}
+                    className="text-chalk hover:text-chalk-bright text-xs font-medium ml-auto"
+                  >
+                    View QR
+                  </button>
+                </div>
+              </div>
+            ))}
+
+            {filtered.length === 0 && (
+              <p className="px-4 py-8 text-center text-line-dim text-sm">
+                No members yet. Enroll your first member to get started.
+              </p>
+            )}
+          </div>
         </div>
 
         <p className="text-xs text-line-dim mt-3">
@@ -1114,6 +1204,12 @@ export default function Students() {
                   <option>Active</option>
                   <option>Inactive</option>
                 </select>
+
+                <p className="text-[11px] text-line-dim mt-1">
+                  {editStudent && inactiveMap.has(editStudent.id)
+                    ? `This just controls whether they're an enrolled member — it hasn't checked in for ${inactiveMap.get(editStudent.id)} days, so they're still showing as Inactive on the Members list and Dashboard until they check in again.`
+                    : "This controls whether they're an enrolled member. Whether they show as Inactive on the Members list/Dashboard for not checking in recently is separate, and updates on its own."}
+                </p>
               </div>
 
               {editError && (
