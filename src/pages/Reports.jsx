@@ -34,6 +34,17 @@ export default function Reports() {
   const [loading, setLoading] = useState(false)
   const [ran, setRan] = useState(false)
 
+  // Lets staff correct a membership payment after the fact — e.g. they
+  // renewed a member but charged the wrong amount, or picked the wrong
+  // payment method. Editing here updates the same `payments` row the
+  // Dashboard's revenue figure is calculated from, so once saved it's
+  // reflected everywhere without any extra step.
+  const [editingPayment, setEditingPayment] = useState(null)
+  const [editAmount, setEditAmount] = useState('')
+  const [editMethod, setEditMethod] = useState('Cash')
+  const [editSaving, setEditSaving] = useState(false)
+  const [editError, setEditError] = useState('')
+
   // Accepts an explicit range so the quick month-jump buttons can run a
   // report immediately after setting the dates, without waiting on a
   // state update — the manual "Run report" button just uses the inputs.
@@ -64,6 +75,56 @@ export default function Reports() {
     setFrom(f)
     setTo(t)
     runReport(f, t)
+  }
+
+  function openEditPayment(p) {
+    setEditingPayment(p)
+    setEditAmount(String(p.amount ?? ''))
+    setEditMethod(p.payment_method || 'Cash')
+    setEditError('')
+  }
+
+  function closeEditPayment() {
+    if (editSaving) return
+    setEditingPayment(null)
+    setEditAmount('')
+    setEditMethod('Cash')
+    setEditError('')
+  }
+
+  async function handleSavePaymentEdit(e) {
+    e.preventDefault()
+    setEditError('')
+
+    const amountNumber = Number(editAmount)
+    if (!editAmount || Number.isNaN(amountNumber) || amountNumber < 0) {
+      setEditError('Enter a valid amount.')
+      return
+    }
+
+    setEditSaving(true)
+
+    const { error } = await supabase
+      .from('payments')
+      .update({ amount: amountNumber, payment_method: editMethod })
+      .eq('id', editingPayment.id)
+
+    setEditSaving(false)
+
+    if (error) {
+      setEditError(error.message)
+      return
+    }
+
+    // Update it in place rather than re-running the whole report, so the
+    // corrected amount/method — and the totals above that are calculated
+    // from paymentRows — reflect immediately.
+    setPaymentRows((rows) =>
+      rows.map((row) =>
+        row.id === editingPayment.id ? { ...row, amount: amountNumber, payment_method: editMethod } : row
+      )
+    )
+    setEditingPayment(null)
   }
 
   function nameFor(row) { return row.students?.full_name || row.guest_name || 'Unknown' }
@@ -212,6 +273,7 @@ export default function Reports() {
                     <th className="px-5 py-3 font-medium">Package</th>
                     <th className="px-5 py-3 font-medium">Amount</th>
                     <th className="px-5 py-3 font-medium">Method</th>
+                    <th className="px-5 py-3 font-medium"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-court-800">
@@ -223,10 +285,18 @@ export default function Reports() {
                       <td className="px-5 py-3 text-line-dim">{p.packages?.package_name || '—'}</td>
                       <td className="px-5 py-3 font-mono">AED {Number(p.amount).toFixed(0)}</td>
                       <td className="px-5 py-3 text-line-dim">{p.payment_method}</td>
+                      <td className="px-5 py-3 text-right">
+                        <button
+                          onClick={() => openEditPayment(p)}
+                          className="text-xs border border-court-600 px-2.5 py-1 rounded-md text-line-dim hover:text-line hover:bg-court-800"
+                        >
+                          Edit
+                        </button>
+                      </td>
                     </tr>
                   ))}
                   {paymentRows.length === 0 && (
-                    <tr><td colSpan={6} className="px-5 py-8 text-center text-line-dim">No membership payments in this date range.</td></tr>
+                    <tr><td colSpan={7} className="px-5 py-8 text-center text-line-dim">No membership payments in this date range.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -341,6 +411,78 @@ export default function Reports() {
           </>
         )}
       </div>
+
+      {editingPayment && (
+        <div
+          className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-20"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) closeEditPayment()
+          }}
+        >
+          <form
+            onSubmit={handleSavePaymentEdit}
+            className="bg-court-900 border border-court-700 rounded-xl p-6 w-full max-w-sm space-y-4"
+          >
+            <div>
+              <h2 className="font-display text-xl">Edit payment</h2>
+              <p className="text-line-dim text-sm mt-1">
+                {editingPayment.students?.full_name || 'Unknown'} · {new Date(editingPayment.payment_date).toLocaleDateString('en-AE')}
+              </p>
+            </div>
+
+            {editError && <p className="text-sm text-danger bg-danger/10 border border-danger/30 rounded-md px-3 py-2">{editError}</p>}
+
+            <div>
+              <label className="block text-xs text-line-dim mb-1.5">Amount charged (AED)</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={editAmount}
+                onChange={(e) => setEditAmount(e.target.value)}
+                className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs text-line-dim mb-1.5">Payment method</label>
+              <select
+                value={editMethod}
+                onChange={(e) => setEditMethod(e.target.value)}
+                className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
+              >
+                <option>Cash</option>
+                <option>Card</option>
+                <option>Bank Transfer</option>
+                <option>Other</option>
+              </select>
+            </div>
+
+            <p className="text-[11px] text-line-dim">
+              This only corrects the payment record — classes remaining/used aren't touched. Fix those from
+              the member's profile on the Members page if needed.
+            </p>
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={closeEditPayment}
+                disabled={editSaving}
+                className="flex-1 border border-court-600 rounded-md py-2.5 text-sm text-line-dim hover:bg-court-800 disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={editSaving}
+                className="flex-1 bg-chalk hover:bg-chalk-bright text-court-950 font-semibold rounded-md py-2.5 text-sm disabled:opacity-60"
+              >
+                {editSaving ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </Layout>
   )
 }
