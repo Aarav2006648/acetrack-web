@@ -36,6 +36,9 @@ export default function Announcements() {
   const [editTemplateName, setEditTemplateName] = useState('')
   const [editTemplateBody, setEditTemplateBody] = useState('')
 
+  const [whatsappStudent, setWhatsappStudent] = useState(null)
+  const [whatsappMessage, setWhatsappMessage] = useState('')
+
   const [pending, setPending] = useState([])
   const [pendingLoading, setPendingLoading] = useState(true)
   const [markingId, setMarkingId] = useState(null)
@@ -228,23 +231,46 @@ export default function Announcements() {
     setTimeout(() => setSentId(null), 2000)
   }
 
-  // Sends a pick-a-template WhatsApp message to an inactive member's
-  // parent — same wa.me approach as the renewal reminder above, just
-  // with the message text coming from whichever template staff picked.
-  function handleSendTemplate(student, templateId) {
+  // Opens a small "what do you want to say" modal instead of jumping
+  // straight to WhatsApp — staff can tap a template to fill the box,
+  // then tweak it or just type their own message from scratch, before
+  // the chat actually opens.
+  function openWhatsappModal(student) {
+    setWhatsappStudent(student)
+    setWhatsappMessage('')
+  }
+
+  function closeWhatsappModal() {
+    setWhatsappStudent(null)
+    setWhatsappMessage('')
+  }
+
+  function pickWhatsappTemplate(templateId) {
     const template = templates.find((t) => t.id === templateId)
-    if (!template) return
+    if (!template || !whatsappStudent) return
 
-    const message = fillTemplate(template.body, { name: student.full_name, days: student.daysSince })
-    const phone = normalizePhone(student.phone)
+    setWhatsappMessage(
+      fillTemplate(template.body, { name: whatsappStudent.full_name, days: whatsappStudent.daysSince })
+    )
+  }
 
+  function sendWhatsappMessage() {
+    if (!whatsappStudent) return
+
+    const phone = normalizePhone(whatsappStudent.phone)
     if (!phone) {
-      window.alert(`${student.full_name} doesn't have a valid phone number saved.`)
+      window.alert(`${whatsappStudent.full_name} doesn't have a valid phone number saved.`)
       return
     }
 
-    const whatsappUrl = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`
+    // No message typed/picked — still fine, this just opens the chat
+    // itself so staff can write something straight into WhatsApp.
+    const whatsappUrl = whatsappMessage.trim()
+      ? `https://wa.me/${phone}?text=${encodeURIComponent(whatsappMessage)}`
+      : `https://wa.me/${phone}`
+
     window.open(whatsappUrl, '_blank', 'noopener,noreferrer')
+    closeWhatsappModal()
   }
 
   function handleAddTemplate(e) {
@@ -457,20 +483,12 @@ export default function Announcements() {
                         >
                           Call {s.phone}
                         </a>
-                        <select
-                          defaultValue=""
-                          onChange={(e) => {
-                            const templateId = e.target.value
-                            if (templateId) handleSendTemplate(s, templateId)
-                            e.target.value = ''
-                          }}
-                          className="text-xs bg-net/15 hover:bg-net/25 text-net px-2 py-1.5 rounded-md font-medium transition-colors focus:outline-none cursor-pointer"
+                        <button
+                          onClick={() => openWhatsappModal(s)}
+                          className="text-xs bg-net/15 hover:bg-net/25 text-net px-3 py-1.5 rounded-md font-medium transition-colors"
                         >
-                          <option value="" disabled>WhatsApp…</option>
-                          {templates.map((t) => (
-                            <option key={t.id} value={t.id}>{t.name}</option>
-                          ))}
-                        </select>
+                          WhatsApp
+                        </button>
                       </div>
                     ) : (
                       <span className="text-xs text-line-dim shrink-0">No phone on file</span>
@@ -587,6 +605,59 @@ export default function Announcements() {
           </div>
         </section>
       </div>
+
+      {/* WHATSAPP COMPOSER — pick a template, tweak it, or just write your own */}
+      {whatsappStudent && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-20">
+          <div className="bg-court-900 border border-court-700 rounded-xl p-5 w-full max-w-md">
+            <h3 className="font-display text-lg tracking-wide mb-1">MESSAGE {whatsappStudent.full_name.toUpperCase()}</h3>
+            <p className="text-xs text-line-dim mb-4">{whatsappStudent.phone || 'No phone on file'}</p>
+
+            {templates.length > 0 && (
+              <div className="mb-3">
+                <p className="text-xs text-line-dim mb-1.5">Start from a template:</p>
+                <div className="flex flex-wrap gap-2">
+                  {templates.map((t) => (
+                    <button
+                      key={t.id}
+                      onClick={() => pickWhatsappTemplate(t.id)}
+                      className="text-xs bg-court-800 hover:bg-court-700 border border-court-600 px-3 py-1.5 rounded-md font-medium transition-colors"
+                    >
+                      {t.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <textarea
+              value={whatsappMessage}
+              onChange={(e) => setWhatsappMessage(e.target.value)}
+              placeholder="Pick a template above, or just type your own message here…"
+              rows={6}
+              className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
+            />
+            <p className="text-xs text-line-dim mt-1.5">
+              Leave this blank to just open the chat with nothing typed yet.
+            </p>
+
+            <div className="flex items-center justify-end gap-3 mt-4">
+              <button
+                onClick={closeWhatsappModal}
+                className="text-line-dim hover:text-line font-medium text-sm px-3 py-2"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={sendWhatsappMessage}
+                className="bg-chalk hover:bg-chalk-bright text-court-950 font-semibold px-4 py-2 rounded-md text-sm"
+              >
+                Open WhatsApp
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </Layout>
   )
 }
