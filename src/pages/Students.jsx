@@ -4,7 +4,7 @@ import { QRCodeCanvas } from 'qrcode.react'
 import Layout from '../components/Layout'
 import { supabase } from '../lib/supabaseClient'
 import { normalizePhone } from '../lib/phone'
-import { loadInactiveMembers, INACTIVITY_DAYS } from '../lib/inactivity'
+import { loadInactiveMembers } from '../lib/inactivity'
 
 function makeStudentCode() {
   const rand = Math.random().toString(36).slice(2, 7).toUpperCase()
