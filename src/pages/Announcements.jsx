@@ -32,6 +32,9 @@ export default function Announcements() {
   const [managingTemplates, setManagingTemplates] = useState(false)
   const [newTemplateName, setNewTemplateName] = useState('')
   const [newTemplateBody, setNewTemplateBody] = useState('')
+  const [editingTemplateId, setEditingTemplateId] = useState(null)
+  const [editTemplateName, setEditTemplateName] = useState('')
+  const [editTemplateBody, setEditTemplateBody] = useState('')
 
   const [pending, setPending] = useState([])
   const [pendingLoading, setPendingLoading] = useState(true)
@@ -264,6 +267,28 @@ export default function Announcements() {
     saveTemplates(next)
   }
 
+  function startEditTemplate(t) {
+    setEditingTemplateId(t.id)
+    setEditTemplateName(t.name)
+    setEditTemplateBody(t.body)
+  }
+
+  function cancelEditTemplate() {
+    setEditingTemplateId(null)
+  }
+
+  function handleSaveTemplateEdit(e) {
+    e.preventDefault()
+    if (!editTemplateName.trim() || !editTemplateBody.trim()) return
+
+    const next = templates.map((t) =>
+      t.id === editingTemplateId ? { ...t, name: editTemplateName.trim(), body: editTemplateBody.trim() } : t
+    )
+    setTemplates(next)
+    saveTemplates(next)
+    setEditingTemplateId(null)
+  }
+
   async function handleMarkPaid(row) {
     setMarkingId(row.key)
     setPendingError('')
@@ -311,28 +336,74 @@ export default function Announcements() {
           {managingTemplates && (
             <div className="bg-court-900 border border-court-700 rounded-xl p-4 mb-3 space-y-3">
               <div className="space-y-2">
-                {templates.map((t) => (
-                  <div key={t.id} className="flex items-start justify-between gap-3 text-xs bg-court-800 rounded-md px-3 py-2">
-                    <div className="min-w-0">
-                      <p className="font-medium text-line">{t.name}</p>
-                      <p className="text-line-dim mt-0.5 whitespace-pre-wrap">
-                        {t.body.length > 160 ? `${t.body.slice(0, 160)}…` : t.body}
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => handleDeleteTemplate(t.id)}
-                      className="text-danger hover:text-danger/80 font-medium shrink-0"
+                {templates.map((t) =>
+                  editingTemplateId === t.id ? (
+                    <form
+                      key={t.id}
+                      onSubmit={handleSaveTemplateEdit}
+                      className="space-y-2 text-xs bg-court-800 rounded-md px-3 py-3"
                     >
-                      Delete
-                    </button>
-                  </div>
-                ))}
+                      <input
+                        value={editTemplateName}
+                        onChange={(e) => setEditTemplateName(e.target.value)}
+                        placeholder="Template name"
+                        className="w-full bg-court-900 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
+                      />
+                      <textarea
+                        value={editTemplateBody}
+                        onChange={(e) => setEditTemplateBody(e.target.value)}
+                        rows={5}
+                        className="w-full bg-court-900 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
+                      />
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="submit"
+                          disabled={!editTemplateName.trim() || !editTemplateBody.trim()}
+                          className="bg-chalk hover:bg-chalk-bright text-court-950 font-semibold px-3 py-1.5 rounded-md text-xs disabled:opacity-60"
+                        >
+                          Save
+                        </button>
+                        <button
+                          type="button"
+                          onClick={cancelEditTemplate}
+                          className="text-line-dim hover:text-line font-medium px-2 py-1.5"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <div key={t.id} className="flex items-start justify-between gap-3 text-xs bg-court-800 rounded-md px-3 py-2">
+                      <div className="min-w-0">
+                        <p className="font-medium text-line">{t.name}</p>
+                        <p className="text-line-dim mt-0.5 whitespace-pre-wrap">
+                          {t.body.length > 160 ? `${t.body.slice(0, 160)}…` : t.body}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <button
+                          onClick={() => startEditTemplate(t)}
+                          className="text-chalk hover:text-chalk-bright font-medium"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleDeleteTemplate(t.id)}
+                          className="text-danger hover:text-danger/80 font-medium"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  )
+                )}
               </div>
 
               <form onSubmit={handleAddTemplate} className="space-y-2 pt-3 border-t border-court-700">
                 <p className="text-xs text-line-dim">
                   Add your own template — use <code className="text-line">{'{name}'}</code> and{' '}
                   <code className="text-line">{'{days}'}</code> and they'll be filled in automatically when sent.
+                  Plain text works most reliably — some WhatsApp apps garble emoji in pre-filled messages.
                 </p>
                 <input
                   value={newTemplateName}
