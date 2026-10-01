@@ -426,7 +426,7 @@ export default function Students() {
       console.error('Package history error:', historyError)
     }
 
-    const { error: updateError } = await supabase
+    const { data: updatedRows, error: updateError } = await supabase
       .from('students')
       .update({
         package_id: pkg.id,
@@ -435,6 +435,7 @@ export default function Students() {
         status: 'Active',
       })
       .eq('id', editStudent.id)
+      .select()
 
     setRenewSaving(false)
 
@@ -442,6 +443,24 @@ export default function Students() {
       setRenewError(updateError.message)
       return
     }
+
+    // Supabase returns no error even when the update matched zero rows —
+    // without this check a hiccup here would still show "Renewed!" while
+    // the member's own record silently never changed (the payment would
+    // still be logged, which is exactly what made this confusing before).
+    if (!updatedRows || updatedRows.length === 0) {
+      setRenewError(
+        "The payment was logged, but this member's record didn't update. Please refresh the page and try again — if it keeps happening, check there isn't a second profile for them under Members."
+      )
+      return
+    }
+
+    // Reflect the renewal in the list immediately rather than waiting on
+    // the reload below — keeps "Renewal due" from ever flashing stale.
+    const updatedRow = updatedRows[0]
+    setStudents((prev) =>
+      prev.map((s) => (s.id === editStudent.id ? { ...s, ...updatedRow, packages: pkg } : s))
+    )
 
     setRenewDone(true)
 

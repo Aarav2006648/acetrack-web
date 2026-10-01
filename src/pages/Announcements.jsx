@@ -3,6 +3,7 @@ import Layout from '../components/Layout'
 import { supabase } from '../lib/supabaseClient'
 import { normalizePhone } from '../lib/phone'
 import { loadInactiveMembers, INACTIVITY_DAYS } from '../lib/inactivity'
+import { loadTemplates, saveTemplates, fillTemplate } from '../lib/whatsappTemplates'
 
 const todayStr = () => new Date().toISOString().slice(0, 10)
 
@@ -26,6 +27,11 @@ export default function Announcements() {
   const [renewals, setRenewals] = useState([])
   const [renewalsLoading, setRenewalsLoading] = useState(true)
   const [sentId, setSentId] = useState(null)
+
+  const [templates, setTemplates] = useState(() => loadTemplates())
+  const [managingTemplates, setManagingTemplates] = useState(false)
+  const [newTemplateName, setNewTemplateName] = useState('')
+  const [newTemplateBody, setNewTemplateBody] = useState('')
 
   const [pending, setPending] = useState([])
   const [pendingLoading, setPendingLoading] = useState(true)
@@ -219,6 +225,45 @@ export default function Announcements() {
     setTimeout(() => setSentId(null), 2000)
   }
 
+  // Sends a pick-a-template WhatsApp message to an inactive member's
+  // parent — same wa.me approach as the renewal reminder above, just
+  // with the message text coming from whichever template staff picked.
+  function handleSendTemplate(student, templateId) {
+    const template = templates.find((t) => t.id === templateId)
+    if (!template) return
+
+    const message = fillTemplate(template.body, { name: student.full_name, days: student.daysSince })
+    const phone = normalizePhone(student.phone)
+
+    if (!phone) {
+      window.alert(`${student.full_name} doesn't have a valid phone number saved.`)
+      return
+    }
+
+    const whatsappUrl = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`
+    window.open(whatsappUrl, '_blank', 'noopener,noreferrer')
+  }
+
+  function handleAddTemplate(e) {
+    e.preventDefault()
+    if (!newTemplateName.trim() || !newTemplateBody.trim()) return
+
+    const next = [
+      ...templates,
+      { id: `custom-${Date.now()}`, name: newTemplateName.trim(), body: newTemplateBody.trim() },
+    ]
+    setTemplates(next)
+    saveTemplates(next)
+    setNewTemplateName('')
+    setNewTemplateBody('')
+  }
+
+  function handleDeleteTemplate(id) {
+    const next = templates.filter((t) => t.id !== id)
+    setTemplates(next)
+    saveTemplates(next)
+  }
+
   async function handleMarkPaid(row) {
     setMarkingId(row.key)
     setPendingError('')
@@ -249,11 +294,70 @@ export default function Announcements() {
 
         {/* NOT SEEN RECENTLY */}
         <section id="hasnt-attended-recently" className="mb-8 scroll-mt-4">
-          <h2 className="font-display text-lg tracking-wide mb-3">HASN'T ATTENDED RECENTLY</h2>
+          <div className="flex items-start justify-between gap-3 mb-3">
+            <h2 className="font-display text-lg tracking-wide">HASN'T ATTENDED RECENTLY</h2>
+            <button
+              onClick={() => setManagingTemplates(!managingTemplates)}
+              className="text-xs text-chalk hover:text-chalk-bright font-medium shrink-0"
+            >
+              {managingTemplates ? 'Close' : 'Manage WhatsApp templates'}
+            </button>
+          </div>
           <p className="text-xs text-line-dim mb-3">
             Active members with classes remaining who haven't checked in for {INACTIVITY_DAYS}+ days —
             worth a call to their parent to check in.
           </p>
+
+          {managingTemplates && (
+            <div className="bg-court-900 border border-court-700 rounded-xl p-4 mb-3 space-y-3">
+              <div className="space-y-2">
+                {templates.map((t) => (
+                  <div key={t.id} className="flex items-start justify-between gap-3 text-xs bg-court-800 rounded-md px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="font-medium text-line">{t.name}</p>
+                      <p className="text-line-dim mt-0.5 whitespace-pre-wrap">
+                        {t.body.length > 160 ? `${t.body.slice(0, 160)}…` : t.body}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => handleDeleteTemplate(t.id)}
+                      className="text-danger hover:text-danger/80 font-medium shrink-0"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              <form onSubmit={handleAddTemplate} className="space-y-2 pt-3 border-t border-court-700">
+                <p className="text-xs text-line-dim">
+                  Add your own template — use <code className="text-line">{'{name}'}</code> and{' '}
+                  <code className="text-line">{'{days}'}</code> and they'll be filled in automatically when sent.
+                </p>
+                <input
+                  value={newTemplateName}
+                  onChange={(e) => setNewTemplateName(e.target.value)}
+                  placeholder="Template name (e.g. Holiday offer)"
+                  className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
+                />
+                <textarea
+                  value={newTemplateBody}
+                  onChange={(e) => setNewTemplateBody(e.target.value)}
+                  placeholder="Message text…"
+                  rows={4}
+                  className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
+                />
+                <button
+                  type="submit"
+                  disabled={!newTemplateName.trim() || !newTemplateBody.trim()}
+                  className="bg-chalk hover:bg-chalk-bright text-court-950 font-semibold px-4 py-2 rounded-md text-sm disabled:opacity-60"
+                >
+                  Add template
+                </button>
+              </form>
+            </div>
+          )}
+
           {inactiveError && <p className="text-sm text-danger mb-2">{inactiveError}</p>}
           <div className="bg-court-900 border border-court-700 rounded-xl overflow-hidden">
             {inactiveLoading && <p className="px-5 py-6 text-sm text-line-dim">Checking attendance…</p>}
@@ -282,14 +386,20 @@ export default function Announcements() {
                         >
                           Call {s.phone}
                         </a>
-                        <a
-                          href={`https://wa.me/${phone}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-xs bg-net/15 hover:bg-net/25 text-net px-3 py-1.5 rounded-md font-medium transition-colors"
+                        <select
+                          defaultValue=""
+                          onChange={(e) => {
+                            const templateId = e.target.value
+                            if (templateId) handleSendTemplate(s, templateId)
+                            e.target.value = ''
+                          }}
+                          className="text-xs bg-net/15 hover:bg-net/25 text-net px-2 py-1.5 rounded-md font-medium transition-colors focus:outline-none cursor-pointer"
                         >
-                          WhatsApp
-                        </a>
+                          <option value="" disabled>WhatsApp…</option>
+                          {templates.map((t) => (
+                            <option key={t.id} value={t.id}>{t.name}</option>
+                          ))}
+                        </select>
                       </div>
                     ) : (
                       <span className="text-xs text-line-dim shrink-0">No phone on file</span>
