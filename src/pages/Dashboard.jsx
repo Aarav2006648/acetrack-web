@@ -18,6 +18,18 @@ export default function Dashboard() {
 
   useEffect(() => {
     loadStats()
+
+    // Numbers here are fetched once, not live — if the Dashboard tab was
+    // already open while a renewal/check-in happened elsewhere (or on
+    // another device), it would otherwise keep showing the old counts
+    // until someone thinks to hit reload. Refetching whenever the tab
+    // becomes the active one again (switching back to it, or waking the
+    // laptop) keeps it close to current without any extra clicks.
+    function onFocus() {
+      loadStats()
+    }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
   }, [])
 
   async function loadStats() {

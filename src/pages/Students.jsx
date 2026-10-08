@@ -362,6 +362,14 @@ export default function Students() {
 
   async function handleRenew(e) {
     e.preventDefault()
+
+    // Guards against a renewal firing twice — e.g. pressing Enter in the
+    // Amount field re-submits the form even while the button says
+    // "Renewing…" and is disabled, since a native form submit via Enter
+    // doesn't check another element's disabled state. Without this, an
+    // impatient second press mid-save could log a duplicate payment.
+    if (renewSaving) return
+
     setRenewError('')
 
     let pkg = null
@@ -1327,12 +1335,13 @@ export default function Students() {
 
                       <button
                         type="button"
+                        disabled={renewSaving}
                         onClick={() => {
                           setRenewCustomPackageMode(!renewCustomPackageMode)
                           setRenewPackageId('')
                           setRenewAmount('')
                         }}
-                        className="text-[11px] text-chalk hover:text-chalk-bright font-medium"
+                        className="text-[11px] text-chalk hover:text-chalk-bright font-medium disabled:opacity-60"
                       >
                         {renewCustomPackageMode ? '← Choose from existing packages' : '+ Use a custom package'}
                       </button>
@@ -1343,8 +1352,9 @@ export default function Students() {
                         <input
                           placeholder="Package name (e.g. 16 x 1hr sessions)"
                           value={renewCustomPackage.package_name}
+                          disabled={renewSaving}
                           onChange={(e) => setRenewCustomPackage({ ...renewCustomPackage, package_name: e.target.value })}
-                          className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
+                          className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk disabled:opacity-60"
                         />
 
                         <div className="grid grid-cols-2 gap-2">
@@ -1353,7 +1363,7 @@ export default function Students() {
                             min="0"
                             placeholder="Total classes"
                             value={renewCustomPackage.total_classes}
-                            disabled={renewCustomPackage.is_unlimited}
+                            disabled={renewCustomPackage.is_unlimited || renewSaving}
                             onChange={(e) => setRenewCustomPackage({ ...renewCustomPackage, total_classes: e.target.value })}
                             className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk disabled:opacity-50"
                           />
@@ -1364,6 +1374,7 @@ export default function Students() {
                             min="0"
                             placeholder="Price (AED)"
                             value={renewCustomPackage.price}
+                            disabled={renewSaving}
                             onChange={(e) => {
                               setRenewCustomPackage({ ...renewCustomPackage, price: e.target.value })
                               setRenewAmount(e.target.value)
@@ -1376,6 +1387,7 @@ export default function Students() {
                           <input
                             type="checkbox"
                             checked={renewCustomPackage.is_unlimited}
+                            disabled={renewSaving}
                             onChange={(e) => setRenewCustomPackage({ ...renewCustomPackage, is_unlimited: e.target.checked })}
                           />
                           Unlimited classes
@@ -1384,10 +1396,11 @@ export default function Students() {
                     ) : (
                       <select
                         value={renewPackageId}
+                        disabled={renewSaving}
                         onChange={(e) =>
                           handleRenewPackageChange(e.target.value)
                         }
-                        className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
+                        className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk disabled:opacity-60"
                       >
                         <option value="">
                           Select a package…
@@ -1413,10 +1426,11 @@ export default function Students() {
                         step="0.01"
                         min="0"
                         value={renewAmount}
+                        disabled={renewSaving}
                         onChange={(e) =>
                           setRenewAmount(e.target.value)
                         }
-                        className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
+                        className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk disabled:opacity-60"
                       />
                     </div>
 
@@ -1427,10 +1441,11 @@ export default function Students() {
 
                       <select
                         value={renewMethod}
+                        disabled={renewSaving}
                         onChange={(e) =>
                           setRenewMethod(e.target.value)
                         }
-                        className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
+                        className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk disabled:opacity-60"
                       >
                         <option>Cash</option>
                         <option>Card</option>

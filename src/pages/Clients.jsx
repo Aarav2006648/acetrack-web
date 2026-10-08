@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState } from 'react'
 import Papa from 'papaparse'
 import Layout from '../components/Layout'
 import { supabase } from '../lib/supabaseClient'
-import { guestKeyFor } from '../lib/phone'
+import { guestKeyFor, normalizePhone } from '../lib/phone'
 import { fetchAllRows } from '../lib/fetchAllRows'
 import { loadInactiveMembers } from '../lib/inactivity'
+import { loadTemplates, fillTemplate } from '../lib/whatsappTemplates'
 
 // Guest visits (badminton walk-ins, billiards rentals) are logged per-visit,
 // not as a single client record — so multiple visits from the same person
@@ -51,6 +52,12 @@ export default function Clients() {
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('All')
   const [statusFilter, setStatusFilter] = useState('All')
+
+  const [selectedKeys, setSelectedKeys] = useState(() => new Set())
+  const [broadcastOpen, setBroadcastOpen] = useState(false)
+  const [broadcastMessage, setBroadcastMessage] = useState('')
+  const [sentKeys, setSentKeys] = useState(() => new Set())
+  const [templates] = useState(() => loadTemplates())
 
   useEffect(() => {
     loadAll()
@@ -126,6 +133,75 @@ export default function Clients() {
     })
   }, [rows, search, typeFilter, statusFilter])
 
+  // Selection is tracked by key against the full `rows` list (not just
+  // `filtered`) so it survives the staff tweaking the search/filters
+  // after picking people — e.g. selecting all Active members, then
+  // switching the filter to double-check who's selected doesn't lose it.
+  const selectableFiltered = useMemo(
+    () => filtered.filter((r) => normalizePhone(r.phone)),
+    [filtered]
+  )
+  const allVisibleSelected =
+    selectableFiltered.length > 0 && selectableFiltered.every((r) => selectedKeys.has(r.key))
+
+  function toggleSelect(key) {
+    setSelectedKeys((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  function toggleSelectAllVisible() {
+    setSelectedKeys((prev) => {
+      const next = new Set(prev)
+      if (allVisibleSelected) {
+        selectableFiltered.forEach((r) => next.delete(r.key))
+      } else {
+        selectableFiltered.forEach((r) => next.add(r.key))
+      }
+      return next
+    })
+  }
+
+  const selectedRows = useMemo(
+    () => rows.filter((r) => selectedKeys.has(r.key) && normalizePhone(r.phone)),
+    [rows, selectedKeys]
+  )
+
+  function openBroadcast() {
+    setBroadcastMessage('')
+    setSentKeys(new Set())
+    setBroadcastOpen(true)
+  }
+
+  function closeBroadcast() {
+    setBroadcastOpen(false)
+  }
+
+  function pickBroadcastTemplate(templateId) {
+    const template = templates.find((t) => t.id === templateId)
+    if (!template) return
+    // Keep {name} as-is here — it gets swapped for each person's own
+    // name individually when their Send button is clicked below, so
+    // one shared message still reads personally for everyone.
+    setBroadcastMessage(template.body)
+  }
+
+  function sendBroadcastTo(row) {
+    const phone = normalizePhone(row.phone)
+    if (!phone) return
+
+    const message = fillTemplate(broadcastMessage, { name: row.name })
+    const whatsappUrl = message.trim()
+      ? `https://wa.me/${phone}?text=${encodeURIComponent(message)}`
+      : `https://wa.me/${phone}`
+
+    window.open(whatsappUrl, '_blank', 'noopener,noreferrer')
+    setSentKeys((prev) => new Set(prev).add(row.key))
+  }
+
   function exportCsv() {
     const csvRows = filtered.map((r) => ({
       Name: r.name,
@@ -175,13 +251,23 @@ export default function Clients() {
             </p>
           </div>
 
-          <button
-            onClick={exportCsv}
-            disabled={loading || filtered.length === 0}
-            className="bg-chalk hover:bg-chalk-bright text-court-950 font-semibold px-4 py-2 rounded-md text-sm disabled:opacity-60"
-          >
-            Download CSV ({filtered.length})
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={openBroadcast}
+              disabled={selectedRows.length === 0}
+              className="bg-net/15 hover:bg-net/25 text-net font-semibold px-4 py-2 rounded-md text-sm disabled:opacity-40"
+            >
+              Message Selected ({selectedRows.length})
+            </button>
+
+            <button
+              onClick={exportCsv}
+              disabled={loading || filtered.length === 0}
+              className="bg-chalk hover:bg-chalk-bright text-court-950 font-semibold px-4 py-2 rounded-md text-sm disabled:opacity-60"
+            >
+              Download CSV ({filtered.length})
+            </button>
+          </div>
         </header>
 
         <div className="flex flex-wrap gap-3 mb-5">
@@ -220,6 +306,15 @@ export default function Clients() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-line-dim text-xs uppercase border-b border-court-700">
+                  <th className="px-5 py-3 font-medium w-10">
+                    <input
+                      type="checkbox"
+                      checked={allVisibleSelected}
+                      onChange={toggleSelectAllVisible}
+                      title="Select everyone currently visible (with a phone number)"
+                      className="accent-chalk"
+                    />
+                  </th>
                   <th className="px-5 py-3 font-medium">Name</th>
                   <th className="px-5 py-3 font-medium">Phone</th>
                   <th className="px-5 py-3 font-medium">Type</th>
@@ -236,6 +331,16 @@ export default function Clients() {
                     onClick={() => openHistory(r)}
                     className="cursor-pointer hover:bg-court-800/60"
                   >
+                    <td className="px-5 py-3" onClick={(e) => e.stopPropagation()}>
+                      {normalizePhone(r.phone) && (
+                        <input
+                          type="checkbox"
+                          checked={selectedKeys.has(r.key)}
+                          onChange={() => toggleSelect(r.key)}
+                          className="accent-chalk"
+                        />
+                      )}
+                    </td>
                     <td className="px-5 py-3 font-medium">{r.name}</td>
                     <td className="px-5 py-3 text-line-dim">{r.phone}</td>
                     <td className="px-5 py-3 text-line-dim">{r.type}</td>
@@ -263,7 +368,7 @@ export default function Clients() {
 
                 {loading && (
                   <tr>
-                    <td colSpan={6} className="px-5 py-8 text-center text-line-dim text-sm">
+                    <td colSpan={7} className="px-5 py-8 text-center text-line-dim text-sm">
                       Loading everyone…
                     </td>
                   </tr>
@@ -271,7 +376,7 @@ export default function Clients() {
 
                 {!loading && filtered.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-5 py-8 text-center text-line-dim text-sm">
+                    <td colSpan={7} className="px-5 py-8 text-center text-line-dim text-sm">
                       No clients match your search/filter.
                     </td>
                   </tr>
@@ -289,12 +394,23 @@ export default function Clients() {
                 className="px-4 py-3 cursor-pointer hover:bg-court-800/60"
               >
                 <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex items-start gap-2">
+                    {normalizePhone(r.phone) && (
+                      <input
+                        type="checkbox"
+                        checked={selectedKeys.has(r.key)}
+                        onChange={() => toggleSelect(r.key)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="accent-chalk mt-1 shrink-0"
+                      />
+                    )}
+                    <div className="min-w-0">
                     <p className="text-sm font-medium truncate">{r.name}</p>
                     <p className="text-xs text-line-dim mt-0.5">
                       {r.phone} · {r.type}{r.status ? ` · ${r.status}` : ''}
                     </p>
                     <p className="text-xs text-line-dim mt-0.5">{r.detail}</p>
+                    </div>
                   </div>
                   <div className="text-right shrink-0">
                     <p className="text-xs text-line-dim">
@@ -328,9 +444,86 @@ export default function Clients() {
 
         <p className="text-xs text-line-dim mt-3">
           Walk-in guests are grouped by phone number across all their visits (or by name if no phone was recorded).
-          Click any row to open their full history in a new tab.
+          Click any row to open their full history in a new tab. Tick the checkbox next to anyone with a phone
+          number on file to add them to a broadcast message.
         </p>
       </div>
+
+      {/* BROADCAST — one message, sent one WhatsApp chat at a time */}
+      {broadcastOpen && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-20">
+          <div className="bg-court-900 border border-court-700 rounded-xl p-5 w-full max-w-lg max-h-[85vh] overflow-y-auto">
+            <h3 className="font-display text-lg tracking-wide mb-1">MESSAGE {selectedRows.length} PEOPLE</h3>
+            <p className="text-xs text-line-dim mb-4">
+              WhatsApp doesn't let one message go to many numbers at once — so write it once here, then click
+              "Send" next to each person below to open their chat with it already typed in. Just tap through
+              the list.
+            </p>
+
+            {templates.length > 0 && (
+              <div className="mb-3">
+                <p className="text-xs text-line-dim mb-1.5">Start from a template:</p>
+                <div className="flex flex-wrap gap-2">
+                  {templates.map((t) => (
+                    <button
+                      key={t.id}
+                      onClick={() => pickBroadcastTemplate(t.id)}
+                      className="text-xs bg-court-800 hover:bg-court-700 border border-court-600 px-3 py-1.5 rounded-md font-medium transition-colors"
+                    >
+                      {t.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <textarea
+              value={broadcastMessage}
+              onChange={(e) => setBroadcastMessage(e.target.value)}
+              placeholder="Pick a template above, or type your own message here…"
+              rows={5}
+              className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
+            />
+            <p className="text-xs text-line-dim mt-1.5 mb-4">
+              Use <code className="text-line">{'{name}'}</code> and each person's own name will be swapped in
+              automatically when you send theirs.
+            </p>
+
+            <div className="border-t border-court-700 pt-3">
+              <p className="text-xs text-line-dim mb-2">
+                {sentKeys.size} of {selectedRows.length} sent
+              </p>
+              <div className="space-y-1.5">
+                {selectedRows.map((r) => (
+                  <div key={r.key} className="flex items-center justify-between gap-3 bg-court-800 rounded-md px-3 py-2">
+                    <div className="min-w-0">
+                      <p className={`text-sm font-medium truncate ${sentKeys.has(r.key) ? 'text-line-dim line-through' : ''}`}>
+                        {r.name}
+                      </p>
+                      <p className="text-xs text-line-dim">{r.phone}</p>
+                    </div>
+                    <button
+                      onClick={() => sendBroadcastTo(r)}
+                      className="text-xs bg-net/15 hover:bg-net/25 text-net px-3 py-1.5 rounded-md font-medium transition-colors shrink-0"
+                    >
+                      {sentKeys.has(r.key) ? 'Send again' : 'Send'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end mt-4">
+              <button
+                onClick={closeBroadcast}
+                className="text-line-dim hover:text-line font-medium text-sm px-3 py-2"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </Layout>
   )
 }
