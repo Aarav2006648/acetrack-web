@@ -3,7 +3,8 @@ import Layout from '../components/Layout'
 import { supabase } from '../lib/supabaseClient'
 import { normalizePhone } from '../lib/phone'
 import { loadInactiveMembers, INACTIVITY_DAYS } from '../lib/inactivity'
-import { loadTemplates, saveTemplates, fillTemplate } from '../lib/whatsappTemplates'
+import { loadTemplates, fillTemplate } from '../lib/whatsappTemplates'
+import TemplateManager from '../components/TemplateManager'
 
 const todayStr = () => new Date().toISOString().slice(0, 10)
 
@@ -30,11 +31,6 @@ export default function Announcements() {
 
   const [templates, setTemplates] = useState(() => loadTemplates())
   const [managingTemplates, setManagingTemplates] = useState(false)
-  const [newTemplateName, setNewTemplateName] = useState('')
-  const [newTemplateBody, setNewTemplateBody] = useState('')
-  const [editingTemplateId, setEditingTemplateId] = useState(null)
-  const [editTemplateName, setEditTemplateName] = useState('')
-  const [editTemplateBody, setEditTemplateBody] = useState('')
 
   const [whatsappStudent, setWhatsappStudent] = useState(null)
   const [whatsappMessage, setWhatsappMessage] = useState('')
@@ -273,48 +269,6 @@ export default function Announcements() {
     closeWhatsappModal()
   }
 
-  function handleAddTemplate(e) {
-    e.preventDefault()
-    if (!newTemplateName.trim() || !newTemplateBody.trim()) return
-
-    const next = [
-      ...templates,
-      { id: `custom-${Date.now()}`, name: newTemplateName.trim(), body: newTemplateBody.trim() },
-    ]
-    setTemplates(next)
-    saveTemplates(next)
-    setNewTemplateName('')
-    setNewTemplateBody('')
-  }
-
-  function handleDeleteTemplate(id) {
-    const next = templates.filter((t) => t.id !== id)
-    setTemplates(next)
-    saveTemplates(next)
-  }
-
-  function startEditTemplate(t) {
-    setEditingTemplateId(t.id)
-    setEditTemplateName(t.name)
-    setEditTemplateBody(t.body)
-  }
-
-  function cancelEditTemplate() {
-    setEditingTemplateId(null)
-  }
-
-  function handleSaveTemplateEdit(e) {
-    e.preventDefault()
-    if (!editTemplateName.trim() || !editTemplateBody.trim()) return
-
-    const next = templates.map((t) =>
-      t.id === editingTemplateId ? { ...t, name: editTemplateName.trim(), body: editTemplateBody.trim() } : t
-    )
-    setTemplates(next)
-    saveTemplates(next)
-    setEditingTemplateId(null)
-  }
-
   async function handleMarkPaid(row) {
     setMarkingId(row.key)
     setPendingError('')
@@ -360,98 +314,8 @@ export default function Announcements() {
           </p>
 
           {managingTemplates && (
-            <div className="bg-court-900 border border-court-700 rounded-xl p-4 mb-3 space-y-3">
-              <div className="space-y-2">
-                {templates.map((t) =>
-                  editingTemplateId === t.id ? (
-                    <form
-                      key={t.id}
-                      onSubmit={handleSaveTemplateEdit}
-                      className="space-y-2 text-xs bg-court-800 rounded-md px-3 py-3"
-                    >
-                      <input
-                        value={editTemplateName}
-                        onChange={(e) => setEditTemplateName(e.target.value)}
-                        placeholder="Template name"
-                        className="w-full bg-court-900 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
-                      />
-                      <textarea
-                        value={editTemplateBody}
-                        onChange={(e) => setEditTemplateBody(e.target.value)}
-                        rows={5}
-                        className="w-full bg-court-900 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
-                      />
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="submit"
-                          disabled={!editTemplateName.trim() || !editTemplateBody.trim()}
-                          className="bg-chalk hover:bg-chalk-bright text-court-950 font-semibold px-3 py-1.5 rounded-md text-xs disabled:opacity-60"
-                        >
-                          Save
-                        </button>
-                        <button
-                          type="button"
-                          onClick={cancelEditTemplate}
-                          className="text-line-dim hover:text-line font-medium px-2 py-1.5"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </form>
-                  ) : (
-                    <div key={t.id} className="flex items-start justify-between gap-3 text-xs bg-court-800 rounded-md px-3 py-2">
-                      <div className="min-w-0">
-                        <p className="font-medium text-line">{t.name}</p>
-                        <p className="text-line-dim mt-0.5 whitespace-pre-wrap">
-                          {t.body.length > 160 ? `${t.body.slice(0, 160)}…` : t.body}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-3 shrink-0">
-                        <button
-                          onClick={() => startEditTemplate(t)}
-                          className="text-chalk hover:text-chalk-bright font-medium"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => handleDeleteTemplate(t.id)}
-                          className="text-danger hover:text-danger/80 font-medium"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-                  )
-                )}
-              </div>
-
-              <form onSubmit={handleAddTemplate} className="space-y-2 pt-3 border-t border-court-700">
-                <p className="text-xs text-line-dim">
-                  Add your own template — use <code className="text-line">{'{name}'}</code> and{' '}
-                  <code className="text-line">{'{days}'}</code> and they'll be filled in automatically when sent.
-                  Plain text works most reliably — some WhatsApp apps garble emoji in pre-filled messages.
-                </p>
-                <input
-                  value={newTemplateName}
-                  onChange={(e) => setNewTemplateName(e.target.value)}
-                  placeholder="Template name (e.g. Holiday offer)"
-                  className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
-                />
-                <textarea
-                  value={newTemplateBody}
-                  onChange={(e) => setNewTemplateBody(e.target.value)}
-                  placeholder="Message text…"
-                  rows={4}
-                  className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
-                />
-                <button
-                  type="submit"
-                  disabled={!newTemplateName.trim() || !newTemplateBody.trim()}
-                  className="bg-chalk hover:bg-chalk-bright text-court-950 font-semibold px-4 py-2 rounded-md text-sm disabled:opacity-60"
-                >
-                  Add template
-                </button>
-              </form>
+            <div className="mb-3">
+              <TemplateManager templates={templates} onChange={setTemplates} />
             </div>
           )}
 
@@ -534,6 +398,14 @@ export default function Announcements() {
                       >
                         {sentId === s.id ? 'Opened ✓' : 'Send reminder on WhatsApp'}
                       </button>
+                      <a
+                        href={`/students?edit=${s.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs bg-net/15 hover:bg-net/25 text-net px-3 py-1.5 rounded-md font-medium transition-colors"
+                      >
+                        Renew now
+                      </a>
                     </div>
                   </div>
                 )
@@ -608,9 +480,24 @@ export default function Announcements() {
 
       {/* WHATSAPP COMPOSER — pick a template, tweak it, or just write your own */}
       {whatsappStudent && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-20">
-          <div className="bg-court-900 border border-court-700 rounded-xl p-5 w-full max-w-md">
-            <h3 className="font-display text-lg tracking-wide mb-1">MESSAGE {whatsappStudent.full_name.toUpperCase()}</h3>
+        <div
+          className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-20"
+          onClick={closeWhatsappModal}
+        >
+          <div
+            className="bg-court-900 border border-court-700 rounded-xl p-5 w-full max-w-md max-h-[85vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3 mb-1">
+              <h3 className="font-display text-lg tracking-wide">MESSAGE {whatsappStudent.full_name.toUpperCase()}</h3>
+              <button
+                onClick={closeWhatsappModal}
+                aria-label="Close"
+                className="text-line-dim hover:text-line text-lg leading-none px-1 -mt-1 -mr-1 shrink-0"
+              >
+                ✕
+              </button>
+            </div>
             <p className="text-xs text-line-dim mb-4">{whatsappStudent.phone || 'No phone on file'}</p>
 
             {templates.length > 0 && (

@@ -6,6 +6,7 @@ import { guestKeyFor, normalizePhone } from '../lib/phone'
 import { fetchAllRows } from '../lib/fetchAllRows'
 import { loadInactiveMembers } from '../lib/inactivity'
 import { loadTemplates, fillTemplate } from '../lib/whatsappTemplates'
+import TemplateManager from '../components/TemplateManager'
 
 // Guest visits (badminton walk-ins, billiards rentals) are logged per-visit,
 // not as a single client record — so multiple visits from the same person
@@ -57,7 +58,8 @@ export default function Clients() {
   const [broadcastOpen, setBroadcastOpen] = useState(false)
   const [broadcastMessage, setBroadcastMessage] = useState('')
   const [sentKeys, setSentKeys] = useState(() => new Set())
-  const [templates] = useState(() => loadTemplates())
+  const [templates, setTemplates] = useState(() => loadTemplates())
+  const [managingTemplates, setManagingTemplates] = useState(false)
 
   useEffect(() => {
     loadAll()
@@ -178,6 +180,7 @@ export default function Clients() {
 
   function closeBroadcast() {
     setBroadcastOpen(false)
+    setManagingTemplates(false)
   }
 
   function pickBroadcastTemplate(templateId) {
@@ -451,18 +454,44 @@ export default function Clients() {
 
       {/* BROADCAST — one message, sent one WhatsApp chat at a time */}
       {broadcastOpen && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-20">
-          <div className="bg-court-900 border border-court-700 rounded-xl p-5 w-full max-w-lg max-h-[85vh] overflow-y-auto">
-            <h3 className="font-display text-lg tracking-wide mb-1">MESSAGE {selectedRows.length} PEOPLE</h3>
+        <div
+          className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-20"
+          onClick={closeBroadcast}
+        >
+          <div
+            className="bg-court-900 border border-court-700 rounded-xl p-5 w-full max-w-lg max-h-[85vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="sticky top-0 bg-court-900 -mx-5 -mt-5 px-5 pt-5 pb-2 flex items-start justify-between gap-3 mb-2 z-10">
+              <h3 className="font-display text-lg tracking-wide">MESSAGE {selectedRows.length} PEOPLE</h3>
+              <button
+                onClick={closeBroadcast}
+                aria-label="Close"
+                className="text-line-dim hover:text-line text-lg leading-none px-1 shrink-0"
+              >
+                ✕
+              </button>
+            </div>
+
             <p className="text-xs text-line-dim mb-4">
               WhatsApp doesn't let one message go to many numbers at once — so write it once here, then click
               "Send" next to each person below to open their chat with it already typed in. Just tap through
               the list.
             </p>
 
-            {templates.length > 0 && (
-              <div className="mb-3">
-                <p className="text-xs text-line-dim mb-1.5">Start from a template:</p>
+            <div className="mb-3">
+              <div className="flex items-center justify-between gap-3 mb-1.5">
+                <p className="text-xs text-line-dim">
+                  {templates.length > 0 ? 'Start from a template:' : 'No templates saved yet.'}
+                </p>
+                <button
+                  onClick={() => setManagingTemplates(!managingTemplates)}
+                  className="text-xs text-chalk hover:text-chalk-bright font-medium shrink-0"
+                >
+                  {managingTemplates ? 'Close' : 'Manage templates'}
+                </button>
+              </div>
+              {templates.length > 0 && (
                 <div className="flex flex-wrap gap-2">
                   {templates.map((t) => (
                     <button
@@ -474,6 +503,12 @@ export default function Clients() {
                     </button>
                   ))}
                 </div>
+              )}
+            </div>
+
+            {managingTemplates && (
+              <div className="mb-3">
+                <TemplateManager templates={templates} onChange={setTemplates} />
               </div>
             )}
 
