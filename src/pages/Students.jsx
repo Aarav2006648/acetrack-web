@@ -66,6 +66,13 @@ export default function Students() {
   const [renewCustomPackageMode, setRenewCustomPackageMode] = useState(false)
   const [renewCustomPackage, setRenewCustomPackage] = useState({ package_name: '', total_classes: '', price: '', is_unlimited: false })
 
+  // A payment already logged for this member today, if any — surfaced as a
+  // heads-up on the Renew form so staff correcting a mistaken amount edit
+  // the existing payment (Reports > Membership Payments) instead of
+  // renewing a second time, which logs a second payment and renewal
+  // instead of replacing the first.
+  const [recentPayment, setRecentPayment] = useState(null)
+
   const [searchParams, setSearchParams] = useSearchParams()
 
   useEffect(() => {
@@ -175,6 +182,15 @@ export default function Students() {
 
   async function handleSave(e) {
     e.preventDefault()
+
+    // Same fix as the renewal form: pressing Enter in a field (e.g. the
+    // amount box) re-submits the form even while the button says
+    // "Saving…" and is disabled, since a native form submit via Enter
+    // doesn't check another element's disabled state. Without this, an
+    // impatient second press mid-save could create a duplicate member
+    // profile and payment.
+    if (saving) return
+
     setError('')
 
     // Cross-check against existing members by phone (strong signal) or
@@ -322,8 +338,25 @@ export default function Students() {
     setQrStudent(newStudent)
   }
 
+  // Looks up whether this member already has a payment logged today, so
+  // the Renew form can warn before staff accidentally double-log one.
+  async function loadRecentPayment(studentId) {
+    setRecentPayment(null)
+
+    const { data } = await supabase
+      .from('payments')
+      .select('amount, payment_method, payment_date, packages(package_name)')
+      .eq('student_id', studentId)
+      .gte('payment_date', todayStr())
+      .order('payment_date', { ascending: false })
+      .limit(1)
+
+    setRecentPayment(data && data.length > 0 ? data[0] : null)
+  }
+
   function openEdit(student) {
     setEditStudent(student)
+    loadRecentPayment(student.id)
 
     setEditForm({
       full_name: student.full_name,
@@ -754,6 +787,7 @@ export default function Students() {
 
               <input
                 required
+                disabled={saving}
                 value={form.full_name}
                 onChange={(e) => {
                   setForm({
@@ -762,7 +796,7 @@ export default function Students() {
                   })
                   setDuplicateWarning(null)
                 }}
-                className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
+                className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk disabled:opacity-60"
               />
             </div>
 
@@ -773,6 +807,7 @@ export default function Students() {
 
               <input
                 required
+                disabled={saving}
                 value={form.phone}
                 onChange={(e) => {
                   setForm({
@@ -781,7 +816,7 @@ export default function Students() {
                   })
                   setDuplicateWarning(null)
                 }}
-                className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
+                className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk disabled:opacity-60"
               />
             </div>
 
@@ -792,6 +827,7 @@ export default function Students() {
 
               <input
                 type="email"
+                disabled={saving}
                 value={form.email}
                 onChange={(e) =>
                   setForm({
@@ -799,7 +835,7 @@ export default function Students() {
                     email: e.target.value,
                   })
                 }
-                className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
+                className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk disabled:opacity-60"
               />
             </div>
 
@@ -811,6 +847,7 @@ export default function Students() {
               <input
                 type="date"
                 max={todayStr()}
+                disabled={saving}
                 value={form.join_date || todayStr()}
                 onChange={(e) =>
                   setForm({
@@ -818,7 +855,7 @@ export default function Students() {
                     join_date: e.target.value,
                   })
                 }
-                className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
+                className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk disabled:opacity-60"
               />
 
               <p className="text-[11px] text-line-dim mt-1">
@@ -836,11 +873,12 @@ export default function Students() {
 
                 <button
                   type="button"
+                  disabled={saving}
                   onClick={() => {
                     setCustomPackageMode(!customPackageMode)
                     setForm({ ...form, package_id: '', amount_charged: '' })
                   }}
-                  className="text-[11px] text-chalk hover:text-chalk-bright font-medium"
+                  className="text-[11px] text-chalk hover:text-chalk-bright font-medium disabled:opacity-60"
                 >
                   {customPackageMode ? '← Choose from existing packages' : '+ Use a custom package'}
                 </button>
@@ -850,9 +888,10 @@ export default function Students() {
                 <div className="space-y-2 bg-court-800/60 border border-court-600 rounded-md p-3">
                   <input
                     placeholder="Package name (e.g. 16 x 1hr sessions)"
+                    disabled={saving}
                     value={customPackage.package_name}
                     onChange={(e) => setCustomPackage({ ...customPackage, package_name: e.target.value })}
-                    className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
+                    className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk disabled:opacity-60"
                   />
 
                   <div className="grid grid-cols-2 gap-2">
@@ -861,7 +900,7 @@ export default function Students() {
                       min="0"
                       placeholder="Total classes"
                       value={customPackage.total_classes}
-                      disabled={customPackage.is_unlimited}
+                      disabled={customPackage.is_unlimited || saving}
                       onChange={(e) => setCustomPackage({ ...customPackage, total_classes: e.target.value })}
                       className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk disabled:opacity-50"
                     />
@@ -871,18 +910,20 @@ export default function Students() {
                       step="0.01"
                       min="0"
                       placeholder="Price (AED)"
+                      disabled={saving}
                       value={customPackage.price}
                       onChange={(e) => {
                         setCustomPackage({ ...customPackage, price: e.target.value })
                         setForm({ ...form, amount_charged: e.target.value })
                       }}
-                      className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
+                      className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk disabled:opacity-60"
                     />
                   </div>
 
                   <label className="flex items-center gap-2 text-xs text-line-dim">
                     <input
                       type="checkbox"
+                      disabled={saving}
                       checked={customPackage.is_unlimited}
                       onChange={(e) => setCustomPackage({ ...customPackage, is_unlimited: e.target.checked })}
                     />
@@ -897,8 +938,9 @@ export default function Students() {
               ) : (
                 <select
                   value={form.package_id}
+                  disabled={saving}
                   onChange={(e) => handlePackageChange(e.target.value)}
-                  className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
+                  className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk disabled:opacity-60"
                 >
                   <option value="">No package</option>
 
@@ -920,6 +962,7 @@ export default function Students() {
                 type="number"
                 step="0.01"
                 min="0"
+                disabled={saving}
                 value={form.amount_charged}
                 onChange={(e) =>
                   setForm({
@@ -928,7 +971,7 @@ export default function Students() {
                   })
                 }
                 placeholder="e.g. discounted or offer price"
-                className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
+                className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk disabled:opacity-60"
               />
 
               <p className="text-[11px] text-line-dim mt-1">
@@ -944,13 +987,14 @@ export default function Students() {
 
               <select
                 value={form.payment_method}
+                disabled={saving}
                 onChange={(e) =>
                   setForm({
                     ...form,
                     payment_method: e.target.value,
                   })
                 }
-                className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk"
+                className="w-full bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chalk disabled:opacity-60"
               >
                 <option>Cash</option>
                 <option>Card</option>
@@ -979,20 +1023,23 @@ export default function Students() {
                         type="date"
                         required
                         max={new Date().toISOString().slice(0, 10)}
+                        disabled={saving}
                         value={row.date}
                         onChange={(e) => updatePastClassRow(row.id, 'date', e.target.value)}
-                        className="flex-1 bg-court-800 border border-court-600 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-chalk"
+                        className="flex-1 bg-court-800 border border-court-600 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-chalk disabled:opacity-60"
                       />
                       <input
                         type="time"
+                        disabled={saving}
                         value={row.time}
                         onChange={(e) => updatePastClassRow(row.id, 'time', e.target.value)}
-                        className="w-24 bg-court-800 border border-court-600 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-chalk"
+                        className="w-24 bg-court-800 border border-court-600 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-chalk disabled:opacity-60"
                       />
                       <button
                         type="button"
+                        disabled={saving}
                         onClick={() => removePastClassRow(row.id)}
-                        className="text-line-dim hover:text-danger text-lg leading-none px-1"
+                        className="text-line-dim hover:text-danger text-lg leading-none px-1 disabled:opacity-60"
                         aria-label="Remove this class"
                       >
                         ×
@@ -1004,8 +1051,9 @@ export default function Students() {
 
               <button
                 type="button"
+                disabled={saving}
                 onClick={addPastClassRow}
-                className="text-xs text-chalk hover:text-chalk-bright font-medium"
+                className="text-xs text-chalk hover:text-chalk-bright font-medium disabled:opacity-60"
               >
                 + Add a class they already attended
               </button>
@@ -1317,6 +1365,17 @@ export default function Students() {
                 a member's package runs out and they pay to continue, whether
                 that's today or weeks from now.
               </p>
+
+              {recentPayment && !renewDone && (
+                <p className="text-xs text-amber-400 bg-amber-400/10 border border-amber-400/30 rounded-md px-3 py-2 mb-3">
+                  Already renewed today — AED {Number(recentPayment.amount).toFixed(0)} via{' '}
+                  {recentPayment.payment_method}
+                  {recentPayment.packages?.package_name ? ` (${recentPayment.packages.package_name})` : ''}.
+                  Fixing a wrong amount or method? Edit that payment from{' '}
+                  <strong className="text-line">Reports &rarr; Membership Payments</strong> instead of
+                  renewing again, so it doesn't get logged twice.
+                </p>
+              )}
 
               {renewDone ? (
                 <p className="text-sm text-net bg-net/10 border border-net/30 rounded-md px-3 py-2">
