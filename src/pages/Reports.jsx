@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import Papa from 'papaparse'
+import * as XLSX from 'xlsx'
 import Layout from '../components/Layout'
 import { supabase } from '../lib/supabaseClient'
 
@@ -51,6 +52,10 @@ function weekStartOf(dateStr) {
 
 function formatDayLabel(dateStr) {
   return new Date(`${dateStr}T12:00:00`).toLocaleDateString('en-AE', { weekday: 'long', day: 'numeric', month: 'short' })
+}
+
+function weekdayNameOf(dateStr) {
+  return new Date(`${dateStr}T12:00:00`).toLocaleDateString('en-AE', { weekday: 'long' })
 }
 
 function formatWeekLabel(weekStartStr) {
@@ -159,14 +164,55 @@ export default function Reports() {
   }
 
   function exportRosterCsv() {
-    const csvRows = rosterRows.map((r) => ({
+    // One row per day with a ready-made count — a quick overview without
+    // opening or filtering anything.
+    const summaryRows = rosterDayGroups.map((g) => ({
+      Date: g.key,
+      Day: weekdayNameOf(g.key),
+      'Check-ins': g.rows.length,
+      'Unique kids': new Set(
+        g.rows.map((r) => (r.students ? `member:${r.students.id}` : `guest:${r.guest_phone || r.guest_name}`))
+      ).size,
+    }))
+
+    summaryRows.push({
+      Date: 'Total',
+      Day: '',
+      'Check-ins': rosterRows.length,
+      'Unique kids': rosterUniqueCount,
+    })
+
+    // The full, per-check-in list, one row per kid who checked in.
+    const checkinRows = rosterRows.map((r) => ({
       Date: r.attendance_date,
       Time: new Date(r.check_in_time).toLocaleTimeString('en-AE', { hour: '2-digit', minute: '2-digit' }),
       Name: nameFor(r),
       Phone: phoneFor(r),
       Type: r.students ? 'Member' : 'Guest',
     }))
-    downloadCsv(csvRows, `checkins_${rosterMonth}.csv`)
+
+    const summarySheet = XLSX.utils.json_to_sheet(summaryRows)
+    const checkinSheet = XLSX.utils.json_to_sheet(checkinRows)
+
+    // Turns on Excel's own filter dropdowns across the header row, and
+    // adds a count next to them that automatically shows how many rows
+    // are visible — so picking one date in the Date filter shows exactly
+    // who (and how many) came that day, live, with no formulas to set up.
+    if (checkinRows.length > 0) {
+      const lastRow = checkinRows.length + 1
+      checkinSheet['!autofilter'] = { ref: `A1:E${lastRow}` }
+      checkinSheet['G1'] = { t: 's', v: 'Showing:' }
+      checkinSheet['H1'] = { t: 'n', f: `SUBTOTAL(103,A2:A${lastRow})`, v: checkinRows.length }
+      checkinSheet['!ref'] = `A1:H${lastRow}`
+    }
+
+    checkinSheet['!cols'] = [{ wch: 12 }, { wch: 10 }, { wch: 22 }, { wch: 14 }, { wch: 10 }, {}, { wch: 10 }, { wch: 8 }]
+    summarySheet['!cols'] = [{ wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }]
+
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, summarySheet, 'Daily Summary')
+    XLSX.utils.book_append_sheet(wb, checkinSheet, 'Check-ins')
+    XLSX.writeFile(wb, `checkins_${rosterMonth}.xlsx`)
   }
 
   function openEditPayment(p) {
@@ -377,7 +423,7 @@ export default function Reports() {
               <p className="text-xs text-line-dim mt-0.5">How many kids came in on each day (or week) of a month — pick one to see exactly who.</p>
             </div>
             {rosterRows.length > 0 && (
-              <button onClick={exportRosterCsv} className="border border-court-600 px-3 py-1.5 rounded-md text-xs text-line-dim hover:text-line hover:bg-court-800">Export CSV</button>
+              <button onClick={exportRosterCsv} className="border border-court-600 px-3 py-1.5 rounded-md text-xs text-line-dim hover:text-line hover:bg-court-800">Export to Excel</button>
             )}
           </div>
 
