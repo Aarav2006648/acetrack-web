@@ -25,6 +25,43 @@ function monthLabel(offset) {
   return d.toLocaleDateString('en-AE', { month: 'short', year: 'numeric' })
 }
 
+// Helpers for the Monthly Check-in Roster below — it works off a plain
+// "YYYY-MM" string (what an <input type="month"> gives you), not the
+// from/to range the reports above use.
+function thisMonthStr() { return new Date().toISOString().slice(0, 7) }
+
+function monthBoundsFromStr(monthStr) {
+  const [y, m] = monthStr.split('-').map(Number)
+  const from = `${monthStr}-01`
+  const lastDay = new Date(y, m, 0).getDate()
+  const to = `${monthStr}-${String(lastDay).padStart(2, '0')}`
+  return { from, to }
+}
+
+// Monday-start week containing this date, as a "YYYY-MM-DD" key (the
+// Monday itself) — just a grouping convenience, not tied to the club's
+// actual opening days.
+function weekStartOf(dateStr) {
+  const d = new Date(`${dateStr}T12:00:00`)
+  const day = d.getDay()
+  const diff = (day === 0 ? -6 : 1) - day
+  d.setDate(d.getDate() + diff)
+  return d.toISOString().slice(0, 10)
+}
+
+function formatDayLabel(dateStr) {
+  return new Date(`${dateStr}T12:00:00`).toLocaleDateString('en-AE', { weekday: 'long', day: 'numeric', month: 'short' })
+}
+
+function formatWeekLabel(weekStartStr) {
+  const start = new Date(`${weekStartStr}T12:00:00`)
+  const end = new Date(start)
+  end.setDate(end.getDate() + 6)
+  const startLabel = start.toLocaleDateString('en-AE', { day: 'numeric', month: 'short' })
+  const endLabel = end.toLocaleDateString('en-AE', { day: 'numeric', month: 'short' })
+  return `${startLabel} \u2013 ${endLabel}`
+}
+
 export default function Reports() {
   const [from, setFrom] = useState(firstOfMonth())
   const [to, setTo] = useState(today())
@@ -45,17 +82,20 @@ export default function Reports() {
   const [editSaving, setEditSaving] = useState(false)
   const [editError, setEditError] = useState('')
 
-  // Daily check-in roster — a separate, single-day view (as opposed to the
-  // date-range reports above) so staff can just pick a day and see exactly
-  // who came in and when, instead of digging through a range report.
-  const [rosterDate, setRosterDate] = useState(today())
+  // Monthly check-in roster — a separate view from the date-range reports
+  // above, so staff can pick a month and immediately see how many kids
+  // came in and on which days (or weeks), then drill into any one of
+  // those to see exactly who.
+  const [rosterMonth, setRosterMonth] = useState(thisMonthStr())
   const [rosterRows, setRosterRows] = useState([])
   const [rosterLoading, setRosterLoading] = useState(false)
+  const [rosterGroupBy, setRosterGroupBy] = useState('day')
+  const [rosterExpanded, setRosterExpanded] = useState(null)
 
-  // Loads today's roster as soon as the page opens, so staff see who's
-  // checked in today without having to pick a date first.
+  // Loads the current month's roster as soon as the page opens, so staff
+  // see it without having to pick a month first.
   useEffect(() => {
-    runRoster(today())
+    runRoster()
   }, [])
 
   // Accepts an explicit range so the quick month-jump buttons can run a
@@ -90,38 +130,43 @@ export default function Reports() {
     runReport(f, t)
   }
 
-  // Accepts an explicit date for the same reason runReport accepts explicit
-  // dates — so the Prev day/Next day/Today buttons can load immediately
-  // after moving the date, without waiting on a state update.
-  async function runRoster(date = rosterDate) {
+  // Accepts an explicit month for the same reason runReport accepts
+  // explicit dates — so the Prev/Next/This month buttons can load
+  // immediately after moving, without waiting on a state update.
+  async function runRoster(monthStr = rosterMonth) {
     setRosterLoading(true)
+    setRosterExpanded(null)
+
+    const { from: monthFrom, to: monthTo } = monthBoundsFromStr(monthStr)
 
     const { data } = await supabase
       .from('attendance')
-      .select('id, activity, attendance_date, check_in_time, guest_name, guest_phone, students(full_name, phone, student_code)')
-      .eq('attendance_date', date)
+      .select('id, activity, attendance_date, check_in_time, guest_name, guest_phone, students(id, full_name, phone, student_code)')
+      .gte('attendance_date', monthFrom)
+      .lte('attendance_date', monthTo)
       .order('check_in_time', { ascending: true })
 
     setRosterRows(data || [])
     setRosterLoading(false)
   }
 
-  function shiftRosterDate(days) {
-    const d = new Date(`${rosterDate}T12:00:00`)
-    d.setDate(d.getDate() + days)
-    const next = d.toISOString().slice(0, 10)
-    setRosterDate(next)
+  function shiftRosterMonth(delta) {
+    const [y, m] = rosterMonth.split('-').map(Number)
+    const d = new Date(y, m - 1 + delta, 1)
+    const next = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+    setRosterMonth(next)
     runRoster(next)
   }
 
   function exportRosterCsv() {
     const csvRows = rosterRows.map((r) => ({
-      Time: new Date(r.check_in_time).toLocaleTimeString('en-AE'),
+      Date: r.attendance_date,
+      Time: new Date(r.check_in_time).toLocaleTimeString('en-AE', { hour: '2-digit', minute: '2-digit' }),
       Name: nameFor(r),
       Phone: phoneFor(r),
       Type: r.students ? 'Member' : 'Guest',
     }))
-    downloadCsv(csvRows, `daily_checkins_${rosterDate}.csv`)
+    downloadCsv(csvRows, `checkins_${rosterMonth}.csv`)
   }
 
   function openEditPayment(p) {
@@ -244,6 +289,31 @@ export default function Reports() {
     URL.revokeObjectURL(url)
   }
 
+  const rosterDayGroups = Object.values(
+    rosterRows.reduce((acc, r) => {
+      const key = r.attendance_date
+      acc[key] = acc[key] || { key, label: formatDayLabel(key), rows: [] }
+      acc[key].rows.push(r)
+      return acc
+    }, {})
+  ).sort((a, b) => a.key.localeCompare(b.key))
+
+  const rosterWeekGroups = Object.values(
+    rosterRows.reduce((acc, r) => {
+      const key = weekStartOf(r.attendance_date)
+      acc[key] = acc[key] || { key, label: formatWeekLabel(key), rows: [], days: new Set() }
+      acc[key].rows.push(r)
+      acc[key].days.add(r.attendance_date)
+      return acc
+    }, {})
+  ).sort((a, b) => a.key.localeCompare(b.key))
+
+  const rosterGroups = rosterGroupBy === 'week' ? rosterWeekGroups : rosterDayGroups
+
+  const rosterUniqueCount = new Set(
+    rosterRows.map((r) => (r.students ? `member:${r.students.id}` : `guest:${r.guest_phone || r.guest_name}`))
+  ).size
+
   const attendanceSummary = Object.values(
     attendanceRows.reduce((acc, r) => {
       const name = nameFor(r)
@@ -299,12 +369,12 @@ export default function Reports() {
           ))}
         </div>
 
-        {/* DAILY CHECK-IN ROSTER */}
+        {/* MONTHLY CHECK-IN ROSTER */}
         <div className="bg-court-900 border border-court-700 rounded-xl p-5 mb-8">
           <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
             <div>
-              <h2 className="font-display text-lg tracking-wide">DAILY CHECK-IN ROSTER</h2>
-              <p className="text-xs text-line-dim mt-0.5">Everyone who checked in on a single day, with the time they came in.</p>
+              <h2 className="font-display text-lg tracking-wide">MONTHLY CHECK-IN ROSTER</h2>
+              <p className="text-xs text-line-dim mt-0.5">How many kids came in on each day (or week) of a month — pick one to see exactly who.</p>
             </div>
             {rosterRows.length > 0 && (
               <button onClick={exportRosterCsv} className="border border-court-600 px-3 py-1.5 rounded-md text-xs text-line-dim hover:text-line hover:bg-court-800">Export CSV</button>
@@ -314,18 +384,18 @@ export default function Reports() {
           <div className="flex flex-wrap items-center gap-2 mb-4">
             <button
               type="button"
-              onClick={() => shiftRosterDate(-1)}
+              onClick={() => shiftRosterMonth(-1)}
               disabled={rosterLoading}
               className="text-xs border border-court-600 px-3 py-2 rounded-md text-line-dim hover:text-line hover:bg-court-800 disabled:opacity-60"
             >
-              &larr; Prev day
+              &larr; Prev month
             </button>
 
             <input
-              type="date"
-              value={rosterDate}
+              type="month"
+              value={rosterMonth}
               onChange={(e) => {
-                setRosterDate(e.target.value)
+                setRosterMonth(e.target.value)
                 runRoster(e.target.value)
               }}
               className="bg-court-800 border border-court-600 rounded-md px-3 py-2 text-sm"
@@ -333,76 +403,95 @@ export default function Reports() {
 
             <button
               type="button"
-              onClick={() => shiftRosterDate(1)}
+              onClick={() => shiftRosterMonth(1)}
               disabled={rosterLoading}
               className="text-xs border border-court-600 px-3 py-2 rounded-md text-line-dim hover:text-line hover:bg-court-800 disabled:opacity-60"
             >
-              Next day &rarr;
+              Next month &rarr;
             </button>
 
-            {rosterDate !== today() && (
+            {rosterMonth !== thisMonthStr() && (
               <button
                 type="button"
                 onClick={() => {
-                  setRosterDate(today())
-                  runRoster(today())
+                  setRosterMonth(thisMonthStr())
+                  runRoster(thisMonthStr())
                 }}
                 disabled={rosterLoading}
                 className="text-xs text-chalk hover:text-chalk-bright font-medium disabled:opacity-60"
               >
-                Today
+                This month
               </button>
             )}
 
-            <span className="text-xs text-line-dim ml-auto">
-              {rosterLoading ? 'Loading…' : `${rosterRows.length} check-in${rosterRows.length === 1 ? '' : 's'}`}
-            </span>
+            <div className="flex items-center gap-1 ml-2 border border-court-600 rounded-md p-0.5">
+              <button
+                type="button"
+                onClick={() => setRosterGroupBy('day')}
+                className={`text-xs px-2.5 py-1 rounded ${rosterGroupBy === 'day' ? 'bg-chalk text-court-950 font-medium' : 'text-line-dim hover:text-line'}`}
+              >
+                By day
+              </button>
+              <button
+                type="button"
+                onClick={() => setRosterGroupBy('week')}
+                className={`text-xs px-2.5 py-1 rounded ${rosterGroupBy === 'week' ? 'bg-chalk text-court-950 font-medium' : 'text-line-dim hover:text-line'}`}
+              >
+                By week
+              </button>
+            </div>
           </div>
 
-          {/* Tablet/desktop table */}
-          <div className="hidden sm:block overflow-x-auto border border-court-700 rounded-lg">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-line-dim text-xs uppercase border-b border-court-700">
-                  <th className="px-5 py-3 font-medium">Time</th>
-                  <th className="px-5 py-3 font-medium">Name</th>
-                  <th className="px-5 py-3 font-medium">Phone</th>
-                  <th className="px-5 py-3 font-medium">Type</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-court-800">
-                {rosterRows.map((r) => (
-                  <tr key={r.id}>
-                    <td className="px-5 py-3 font-mono text-line-dim">
-                      {new Date(r.check_in_time).toLocaleTimeString('en-AE', { hour: '2-digit', minute: '2-digit' })}
-                    </td>
-                    <td className="px-5 py-3 font-medium">{nameFor(r)}</td>
-                    <td className="px-5 py-3 text-line-dim">{phoneFor(r)}</td>
-                    <td className="px-5 py-3 text-line-dim">{r.students ? 'Member' : 'Guest'}</td>
-                  </tr>
-                ))}
-                {!rosterLoading && rosterRows.length === 0 && (
-                  <tr><td colSpan={4} className="px-5 py-8 text-center text-line-dim">No check-ins on this day.</td></tr>
+          <p className="text-xs text-line-dim mb-3">
+            {rosterLoading
+              ? 'Loading…'
+              : `${rosterRows.length} check-in${rosterRows.length === 1 ? '' : 's'} · ${rosterUniqueCount} kid${rosterUniqueCount === 1 ? '' : 's'} · ${rosterDayGroups.length} day${rosterDayGroups.length === 1 ? '' : 's'} active this month`}
+          </p>
+
+          <div className="border border-court-700 rounded-lg overflow-hidden">
+            {rosterGroups.map((g) => (
+              <div key={g.key} className="border-b border-court-800 last:border-b-0">
+                <button
+                  type="button"
+                  onClick={() => setRosterExpanded(rosterExpanded === g.key ? null : g.key)}
+                  className="w-full flex items-center justify-between gap-3 px-5 py-3 text-left hover:bg-court-800/60"
+                >
+                  <span className="text-sm font-medium">{g.label}</span>
+                  <span className="flex items-center gap-3 text-xs text-line-dim">
+                    {rosterGroupBy === 'week' && <span>{g.days.size} day{g.days.size === 1 ? '' : 's'}</span>}
+                    <span className="font-mono text-line">{g.rows.length} check-in{g.rows.length === 1 ? '' : 's'}</span>
+                    <span>{rosterExpanded === g.key ? '▲' : '▼'}</span>
+                  </span>
+                </button>
+
+                {rosterExpanded === g.key && (
+                  <div className="px-5 pb-3 -mt-1">
+                    <div className="divide-y divide-court-800 border border-court-800 rounded-md">
+                      {g.rows
+                        .slice()
+                        .sort((a, b) => new Date(a.check_in_time) - new Date(b.check_in_time))
+                        .map((r) => (
+                          <div key={r.id} className="flex items-center justify-between gap-3 px-3 py-2">
+                            <div className="min-w-0">
+                              <p className="text-sm truncate">{nameFor(r)}</p>
+                              <p className="text-xs text-line-dim">
+                                {phoneFor(r)} &middot; {r.students ? 'Member' : 'Guest'}
+                                {rosterGroupBy === 'week' && ` · ${formatDayLabel(r.attendance_date)}`}
+                              </p>
+                            </div>
+                            <p className="font-mono text-xs text-line-dim shrink-0">
+                              {new Date(r.check_in_time).toLocaleTimeString('en-AE', { hour: '2-digit', minute: '2-digit' })}
+                            </p>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
                 )}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Phone: stacked cards */}
-          <div className="sm:hidden divide-y divide-court-800 border border-court-700 rounded-lg">
-            {rosterRows.map((r) => (
-              <div key={r.id} className="px-4 py-3 flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium truncate">{nameFor(r)}</p>
-                  <p className="text-xs text-line-dim mt-0.5">{phoneFor(r)} &middot; {r.students ? 'Member' : 'Guest'}</p>
-                </div>
-                <p className="font-mono text-xs shrink-0 text-line-dim">
-                  {new Date(r.check_in_time).toLocaleTimeString('en-AE', { hour: '2-digit', minute: '2-digit' })}
-                </p>
               </div>
             ))}
-            {!rosterLoading && rosterRows.length === 0 && (
-              <p className="px-4 py-8 text-center text-sm text-line-dim">No check-ins on this day.</p>
+
+            {!rosterLoading && rosterGroups.length === 0 && (
+              <p className="px-5 py-8 text-center text-sm text-line-dim">No check-ins this month.</p>
             )}
           </div>
         </div>
