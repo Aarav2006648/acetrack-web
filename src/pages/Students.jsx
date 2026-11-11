@@ -516,6 +516,23 @@ export default function Students() {
       prev.map((s) => (s.id === editStudent.id ? { ...s, ...updatedRow, packages: pkg } : s))
     )
 
+    // Also sync the "Edit member details" form above with the numbers we
+    // just renewed to. Without this, that form keeps showing whatever the
+    // classes-remaining count was BEFORE this renewal (it was only loaded
+    // once, when the popup first opened) — so if staff then hit "Save
+    // changes" up there for something unrelated (a phone number, a typo),
+    // it would silently overwrite this renewal with the old, stale number.
+    setEditForm((prev) =>
+      prev && {
+        ...prev,
+        package_id: updatedRow.package_id,
+        remaining_classes: updatedRow.remaining_classes,
+        classes_used: updatedRow.classes_used,
+        status: updatedRow.status,
+      }
+    )
+    setEditStudent((prev) => prev && { ...prev, ...updatedRow, packages: pkg })
+
     setRenewDone(true)
 
     await loadStudents()
@@ -1757,4 +1774,3 @@ function shareParentPortalOnWhatsApp(student) {
 // Now shared across the app (see ../lib/phone) so a number typed as
 // "501234567" (missing the leading 0) still matches "0501234567"
 // everywhere — WhatsApp links, duplicate-member detection, etc.
-
