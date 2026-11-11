@@ -48,6 +48,22 @@ export default function Announcements() {
     loadRenewals()
     loadPending()
     loadTodaysWalkIns()
+
+    // These lists are fetched once, not live — if this tab was already
+    // open while a renewal/check-in/payment happened elsewhere (or on
+    // another device), it would otherwise keep showing stale "due" names
+    // indefinitely, since nothing here ever re-queries on its own.
+    // Refetching whenever the tab becomes active again (switching back
+    // to it, or waking the laptop) keeps it close to current without
+    // staff needing to remember to hit reload.
+    function onFocus() {
+      loadInactive()
+      loadRenewals()
+      loadPending()
+      loadTodaysWalkIns()
+    }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
   }, [])
 
   // Deep-links from the Dashboard's stat cards land here with a #hash —

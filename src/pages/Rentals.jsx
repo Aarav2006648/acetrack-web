@@ -18,6 +18,15 @@ export default function Rentals() {
   useEffect(() => {
     loadRateCard()
     loadRentals()
+
+    // Fetched once, not live — refetch when the tab becomes active again
+    // so a rental logged elsewhere shows up here without a manual reload.
+    function onFocus() {
+      loadRateCard()
+      loadRentals()
+    }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
   }, [])
 
   async function loadRateCard() {

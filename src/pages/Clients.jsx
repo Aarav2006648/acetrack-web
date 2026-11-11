@@ -63,6 +63,15 @@ export default function Clients() {
 
   useEffect(() => {
     loadAll()
+
+    // Fetched once, not live — refetch when the tab becomes active again
+    // so a renewal/payment/status change made elsewhere (another tab,
+    // another staff device) shows up here without needing a manual reload.
+    function onFocus() {
+      loadAll()
+    }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
   }, [])
 
   async function loadAll() {

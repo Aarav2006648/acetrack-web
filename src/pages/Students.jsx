@@ -79,6 +79,19 @@ export default function Students() {
     loadStudents()
     loadPackages()
     loadInactiveStatus()
+
+    // Fetched once, not live — if this tab stays open while a renewal or
+    // check-in happens elsewhere (another tab, another staff device), the
+    // list here would otherwise keep showing old statuses/remaining
+    // classes indefinitely. Refetching when the tab becomes active again
+    // keeps it current without anyone needing to remember to reload.
+    function onFocus() {
+      loadStudents()
+      loadPackages()
+      loadInactiveStatus()
+    }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
   }, [])
 
   async function loadInactiveStatus() {
