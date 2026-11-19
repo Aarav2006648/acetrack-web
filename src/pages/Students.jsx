@@ -51,6 +51,7 @@ export default function Students() {
   const [qrStudent, setQrStudent] = useState(null)
   const [editStudent, setEditStudent] = useState(null)
   const [editForm, setEditForm] = useState(null)
+  const [editOriginalRemaining, setEditOriginalRemaining] = useState(0)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [editError, setEditError] = useState('')
@@ -382,6 +383,15 @@ export default function Students() {
       status: student.status,
     })
 
+    // Remembered separately from editForm so Save can tell whether staff
+    // actually typed a new "Classes remaining" number, or whether this is
+    // just whatever was here when the popup opened. That number can go
+    // stale fast — a real check-in or renewal can land for this member
+    // while this popup sits open — so Save should only ever touch it when
+    // someone deliberately changed it, never as a side effect of fixing
+    // their name or phone number.
+    setEditOriginalRemaining(student.remaining_classes ?? 0)
+
     setEditError('')
 
     setRenewPackageId(student.package_id || '')
@@ -440,6 +450,31 @@ export default function Students() {
     }
 
     setRenewSaving(true)
+
+    // Re-check against the database itself, right before saving, rather
+    // than trusting only the in-memory guard above or the "already
+    // renewed today" banner (which is just a heads-up, loaded once when
+    // this popup opened). Those both protect against a double-click in
+    // THIS tab, but not against the same member being renewed from two
+    // tabs/devices at once — e.g. via the "Renew now" shortcut on the
+    // Renewals Due page opening in a second tab while this one is also
+    // open. A payment landing in the last few seconds for this exact
+    // member is a clear sign that just happened, so stop here instead
+    // of logging a second one.
+    const { data: justLogged } = await supabase
+      .from('payments')
+      .select('id')
+      .eq('student_id', editStudent.id)
+      .gte('payment_date', new Date(Date.now() - 20000).toISOString())
+      .limit(1)
+
+    if (justLogged && justLogged.length > 0) {
+      setRenewSaving(false)
+      setRenewError(
+        'A renewal for this member was just logged a few seconds ago — likely from another open tab or device. Close this and check their profile before renewing again.'
+      )
+      return
+    }
 
     if (renewCustomPackageMode) {
       const { data: newPkg, error: pkgError } = await createCustomPackage(renewCustomPackage)
@@ -543,17 +578,29 @@ export default function Students() {
     setEditError('')
     setEditSaving(true)
 
+    const updatePayload = {
+      full_name: editForm.full_name,
+      phone: editForm.phone,
+      email: editForm.email || null,
+      join_date: editForm.join_date || undefined,
+      package_id: editForm.package_id || null,
+      status: editForm.status,
+    }
+
+    // Only include remaining_classes if staff actually typed a different
+    // number into that box. It's otherwise whatever this popup loaded
+    // with, which can go stale the moment it's left open — a real
+    // check-in or renewal for this same member elsewhere would change
+    // the live number without this popup knowing. Leaving the field out
+    // entirely means Save can never silently undo that, even when staff
+    // only meant to fix a name or phone number.
+    if (Number(editForm.remaining_classes) !== editOriginalRemaining) {
+      updatePayload.remaining_classes = Number(editForm.remaining_classes)
+    }
+
     const { error: updateError } = await supabase
       .from('students')
-      .update({
-        full_name: editForm.full_name,
-        phone: editForm.phone,
-        email: editForm.email || null,
-        join_date: editForm.join_date || undefined,
-        package_id: editForm.package_id || null,
-        remaining_classes: Number(editForm.remaining_classes),
-        status: editForm.status,
-      })
+      .update(updatePayload)
       .eq('id', editStudent.id)
 
     setEditSaving(false)
