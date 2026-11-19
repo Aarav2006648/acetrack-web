@@ -355,24 +355,34 @@ export default function Announcements() {
                         {' · '}{s.daysSince} days ago
                       </p>
                     </div>
-                    {phone ? (
-                      <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
-                        <a
-                          href={`tel:${phone}`}
-                          className="text-xs bg-danger/15 hover:bg-danger/25 text-danger px-3 py-1.5 rounded-md font-medium transition-colors"
-                        >
-                          Call {s.phone}
-                        </a>
-                        <button
-                          onClick={() => openWhatsappModal(s)}
-                          className="text-xs bg-net/15 hover:bg-net/25 text-net px-3 py-1.5 rounded-md font-medium transition-colors"
-                        >
-                          WhatsApp
-                        </button>
-                      </div>
-                    ) : (
-                      <span className="text-xs text-line-dim shrink-0">No phone on file</span>
-                    )}
+                    <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
+                      {phone ? (
+                        <>
+                          <a
+                            href={`tel:${phone}`}
+                            className="text-xs bg-danger/15 hover:bg-danger/25 text-danger px-3 py-1.5 rounded-md font-medium transition-colors"
+                          >
+                            Call {s.phone}
+                          </a>
+                          <button
+                            onClick={() => openWhatsappModal(s)}
+                            className="text-xs bg-net/15 hover:bg-net/25 text-net px-3 py-1.5 rounded-md font-medium transition-colors"
+                          >
+                            WhatsApp
+                          </button>
+                        </>
+                      ) : (
+                        <span className="text-xs text-line-dim">No phone on file</span>
+                      )}
+                      <a
+                        href={`/students?edit=${s.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs bg-court-700 hover:bg-court-600 text-line px-3 py-1.5 rounded-md font-medium transition-colors"
+                      >
+                        View member
+                      </a>
+                    </div>
                   </div>
                 )
               })}
