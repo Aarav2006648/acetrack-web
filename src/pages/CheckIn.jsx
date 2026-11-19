@@ -131,6 +131,16 @@ export default function CheckIn() {
       return
     }
 
+    if (member.packages && !member.packages.is_unlimited && member.remaining_classes <= 0) {
+      showScanStatus({
+        type: 'error',
+        message: `${member.full_name} has no classes left — renew their membership first`,
+        member,
+      })
+      setTimeout(() => (busyRef.current = false), 2000)
+      return
+    }
+
     const { data: existing } = await supabase
       .from('attendance')
       .select('id')
@@ -244,11 +254,34 @@ export default function CheckIn() {
     setManualSaving(true)
     setStatus(null)
 
-    const member = manualSelected
+    // Re-fetch fresh rather than trusting the snapshot from whenever they
+    // were searched/selected — by the time staff actually submits, a
+    // renewal or another check-in could have changed their real numbers.
+    const { data: member, error: refetchError } = await supabase
+      .from('students')
+      .select('*, packages(package_name, is_unlimited)')
+      .eq('id', manualSelected.id)
+      .maybeSingle()
+
+    if (refetchError || !member) {
+      setManualSaving(false)
+      setStatus({ type: 'error', message: refetchError?.message || 'Could not find this member anymore — try searching again.' })
+      return
+    }
 
     if (member.status !== 'Active') {
       setManualSaving(false)
       setStatus({ type: 'error', message: `${member.full_name}'s membership is inactive`, member })
+      return
+    }
+
+    if (member.packages && !member.packages.is_unlimited && member.remaining_classes <= 0) {
+      setManualSaving(false)
+      setStatus({
+        type: 'error',
+        message: `${member.full_name} has no classes left on their current package — renew their membership first, then add this attendance record.`,
+        member,
+      })
       return
     }
 
